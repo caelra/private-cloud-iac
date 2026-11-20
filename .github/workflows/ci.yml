@@ -4,11 +4,17 @@ name: ci
 # Production would add a plan/apply job that authenticates with GitHub OIDC.
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   terraform:
     runs-on: ubuntu-latest
+    env:
+      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/tf-plugin-cache
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
@@ -19,6 +25,7 @@ jobs:
         run: terraform fmt -check -recursive
       - name: Init and validate
         run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
           for d in bootstrap envs/dev modules/*/; do
             echo "::group::$d"
             terraform -chdir="$d" init -backend=false -input=false

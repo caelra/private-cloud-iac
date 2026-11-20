@@ -51,7 +51,7 @@ and run `terraform init -backend-config=backend.hcl` instead.
 
 ## Considered and not applicable
 
-- **Cache tier:** not applicable because there is no data to cache. It would go in front of the data tier, or ElastiCache in the isolated tier.
+- **Cache tier:** not applicable because there is no data to cache. It would be ElastiCache in the isolated tier, in front of the data tier.
 - **CDN:** not applicable because the app is internal and serves no public static content. It would go in front of a public ALB or S3 origin.
 - **Database, replication and sharding:** not applicable because the app is stateless and has no data. It would be a Multi-AZ managed database in a third, data subnet tier.
 - **Message queue:** not applicable because there is no async work. It would be SQS between the app and a worker service.

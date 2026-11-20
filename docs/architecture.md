@@ -82,7 +82,7 @@ points at it.
 
 Built by `modules/monitoring` and friends:
 
-- **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, running tasks below desired, ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them.
+- **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, running tasks below the minimum (2), ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them. Target tracking also creates two AWS-managed `TargetTracking-*` alarms, which are not sent to SNS.
 - **Dashboard** named by the `dashboard_name` output: requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
 - **Logs:** app, build, trigger Lambda and VPC flow logs (all traffic) in CloudWatch with 14-day retention by default, SSM session logs with 30 days, and Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
 
