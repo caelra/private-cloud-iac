@@ -33,8 +33,26 @@ variable "container_port" {
 }
 
 variable "desired_count" {
-  type    = number
-  default = 2
+  description = "Minimum task count; auto-scaling grows the service from here."
+  type        = number
+  default     = 2
+}
+
+variable "max_count" {
+  description = "Upper bound for target-tracking auto-scaling."
+  type        = number
+  default     = 4
+
+  validation {
+    condition     = var.max_count >= var.desired_count
+    error_message = "max_count must be at least desired_count."
+  }
+}
+
+variable "cpu_target_percent" {
+  description = "Average CPU the service scales to hold."
+  type        = number
+  default     = 60
 }
 
 variable "cpu" {

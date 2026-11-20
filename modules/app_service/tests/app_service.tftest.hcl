@@ -49,3 +49,17 @@ run "alb_only_accepts_vpc_traffic" {
     error_message = "ALB ingress must be limited to the VPC CIDR."
   }
 }
+
+run "scales_horizontally_on_cpu" {
+  command = plan
+
+  assert {
+    condition     = aws_appautoscaling_target.app.min_capacity == 2 && aws_appautoscaling_target.app.max_capacity == 4
+    error_message = "Auto-scaling must run between 2 and 4 tasks by default."
+  }
+
+  assert {
+    condition     = aws_appautoscaling_policy.cpu.target_tracking_scaling_policy_configuration[0].target_value == 60
+    error_message = "CPU target must default to 60 percent."
+  }
+}

@@ -225,9 +225,45 @@ resource "aws_ecs_service" "app" {
     rollback = true
   }
 
+  # Auto-scaling owns the task count after create; without this every apply
+  # would reset it to desired_count.
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+
   depends_on = [
     aws_lb_listener.http,
     aws_iam_role_policy_attachment.execution,
     terraform_data.endpoints_ready,
   ]
+}
+
+# --- Auto-scaling -----------------------------------------------------------------
+# The tier is stateless, so tasks are interchangeable and can scale horizontally.
+# The minimum is desired_count (two tasks, one per AZ) for redundancy.
+
+resource "aws_appautoscaling_target" "app" {
+  service_namespace  = "ecs"
+  resource_id        = "service/${aws_ecs_cluster.this.name}/${aws_ecs_service.app.name}"
+  scalable_dimension = "ecs:service:DesiredCount"
+  min_capacity       = var.desired_count
+  max_capacity       = var.max_count
+}
+
+resource "aws_appautoscaling_policy" "cpu" {
+  name               = "${var.name}-app-cpu"
+  policy_type        = "TargetTrackingScaling"
+  service_namespace  = aws_appautoscaling_target.app.service_namespace
+  resource_id        = aws_appautoscaling_target.app.resource_id
+  scalable_dimension = aws_appautoscaling_target.app.scalable_dimension
+
+  target_tracking_scaling_policy_configuration {
+    target_value       = var.cpu_target_percent
+    scale_out_cooldown = 60
+    scale_in_cooldown  = 120
+
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
+  }
 }
