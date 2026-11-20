@@ -83,9 +83,9 @@ scripts/validate.sh    # live checks, PASS/FAIL per check, non-zero exit on any 
 
 Manual proofs (persistence, redeploy, failed build) and the offline test suite: [docs/validation.md](docs/validation.md). CI runs the offline checks on every pull request and on pushes to main.
 
-## 7. Monitoring and alerting (bonus)
+## 7. Monitoring and alerting
 
-Eight CloudWatch alarms (app health first, then NAT, build and dev box) notify an SNS topic; set `alert_email` to receive them. One dashboard, Container Insights, VPC flow logs and SSM session logs cover the rest. Details and how this would change at scale: [docs/architecture.md](docs/architecture.md#monitoring).
+Treated as part of the solution: `modules/monitoring` is created by the same apply. Eight CloudWatch alarms (app symptoms first, then NAT, build and dev box) notify an SNS topic; set `alert_email` to receive them. One dashboard, Container Insights, VPC flow logs and SSM session logs cover the rest. The approach (where it is defined, what to alert on, where alerts go, how it is managed) and how it would change at scale: [docs/architecture.md](docs/architecture.md#monitoring).
 
 ## 8. Where the design bends a requirement
 

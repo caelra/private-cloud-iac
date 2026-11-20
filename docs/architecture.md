@@ -80,11 +80,23 @@ points at it.
 
 ## Monitoring
 
-Built by `modules/monitoring` and friends:
+Monitoring and alerting is part of the solution, not an add-on: `modules/monitoring` is created by the same `terraform apply` as the resources it watches.
+
+### Approach
+
+- **Where it is defined:** in Terraform, in the same stack as the infrastructure. An environment never exists without its alarms, and a threshold change is reviewed and tested like any other change.
+- **What to alert on:** symptoms first (the app is unhealthy or returning errors), then causes (CPU, memory, NAT, build, dev box). An alarm exists only if someone should act on it.
+- **Where alerts go:** one SNS topic per environment. Subscribers attach to the topic (e-mail today through `alert_email`; chat or an on-call tool later) without touching the alarms.
+- **What to keep:** logs for every component, with retention set in code, plus VPC flow logs and SSM session logs for security review.
+- **How it is managed:** thresholds, retention and the alert address are variables; nothing is configured by hand in the console.
+
+### What is built
 
 - **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, running tasks below the minimum (2), ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them. Target tracking also creates two AWS-managed `TargetTracking-*` alarms, which are not sent to SNS.
 - **Dashboard** named by the `dashboard_name` output: requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
 - **Logs:** app, build, trigger Lambda and VPC flow logs (all traffic) in CloudWatch with 14-day retention by default, SSM session logs with 30 days, and Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
+
+### At larger scale
 
 At larger scale this would not be per-environment CloudWatch alarms written by hand. Metrics and alarms would be generated from shared module defaults per service and fed to one central account (CloudWatch cross-account observability, or Prometheus/Grafana or Datadog). Alerts would route by severity and ownership through an on-call tool rather than one SNS topic, and alarms would be tied to SLOs (error rate and latency burn) instead of fixed thresholds. Flow logs and session logs would go to a central log account with longer retention.
 
