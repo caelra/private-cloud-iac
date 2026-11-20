@@ -23,6 +23,4 @@ packages:
 runcmd:
   - systemctl enable --now docker
   - usermod -aG docker ec2-user
-  - dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
-  - dnf install -y terraform
-  - touch /var/lib/cloud/instance/dev-bootstrap-complete
+  - dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo && dnf install -y terraform && touch /var/lib/cloud/instance/dev-bootstrap-complete

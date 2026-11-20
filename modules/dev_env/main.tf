@@ -82,7 +82,8 @@ resource "aws_iam_instance_profile" "dev" {
   role = aws_iam_role.dev.name
 }
 
-# Session preferences: log every session and land in ec2-user's persistent home.
+# Session preferences: sessions started with this document (--document-name, as the
+# ssm_command output does) are logged and land in ec2-user's persistent home.
 resource "aws_ssm_document" "session" {
   name            = "${var.name}-dev-session"
   document_type   = "Session"
@@ -157,4 +158,7 @@ resource "aws_volume_attachment" "home" {
   device_name = "/dev/sdf"
   volume_id   = aws_ebs_volume.home.id
   instance_id = aws_instance.dev.id
+
+  # Instance replacement destroys this first; a mounted /home would hang a plain detach.
+  stop_instance_before_detaching = true
 }
