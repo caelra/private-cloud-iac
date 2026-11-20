@@ -12,7 +12,7 @@ Every significant choice, the alternatives considered, and what it costs. The
 | 2 | `egress` and `isolated` tiers, each in 2 AZs | An ALB needs two AZs, and two AZs is the realistic shape | Single AZ | Roughly double the subnets and endpoint ENIs |
 | 3 | Regional NAT gateway, no public subnet | One NAT spans AZs, so the VPC needs no public subnet at all | Zonal NAT in a public subnet (classic); NAT instance | Newer feature; a NAT gateway still needs an internet gateway to exist (see [exceptions](#exceptions-and-production-fixes)) |
 | 4 | SSM Session Manager for human access | IAM auth, no inbound ports, session logging, port forwarding, Remote-SSH via ProxyCommand | Bastion host (public IP); Client VPN (cost, certificates); EC2 Instance Connect Endpoint (SSH only, weaker audit) | Needs AWS CLI and the Session Manager plugin on the developer machine |
-| 5 | Dev box reaches SSM through the NAT | Saves about $22/month of `ssm`, `ssmmessages`, `ec2messages` endpoints | Interface endpoints for those three services | SSM traffic leaves via the NAT public IP. Endpoints are the production hardening step |
+| 5 | Dev box reaches SSM through the NAT | Saves about $22/month per AZ (about $44 for this two-AZ stack) of `ssm`, `ssmmessages`, `ec2messages` endpoints | Interface endpoints for those three services | SSM traffic leaves via the NAT public IP. Endpoints are the production hardening step |
 | 6 | EC2 AL2023 arm64 `t4g.small`, IMDSv2 required, separate encrypted gp3 volume at `/home`, tooling by cloud-init (Terraform from the pinned HashiCorp release zip, `dev_env` variable `terraform_version`, not a yum repo) | Simple persistent-disk story: `/home` outlives the instance | Cloud9 (closed to new customers); WorkSpaces (heavy, slow); devcontainer on Fargate (no simple persistent disk) | `/home` survives stop/start and instance replacement but not `terraform destroy` |
 | 7 | ECS Fargate | Container runtime with no nodes to manage | EKS (control plane for one container); App Runner (awkward private ingress); Lambda (not a container runtime in spirit) | Fargate costs more per vCPU than EC2 capacity |
 | 8 | App in the isolated tier | Proves the tier is usable with no internet route | App in the egress tier | Needs VPC endpoints (`ecr.api`, `ecr.dkr`, `logs`, S3 gateway) for pull and logs |
@@ -55,7 +55,7 @@ and run `terraform init -backend-config=backend.hcl` instead.
 - Regional NAT auto mode may take minutes to expand into an AZ when the first workloads appear.
 - A second plan shows no diff on the regional NAT (`availability_zone_address` read-back).
 - The pinned `terraform_version` (1.17.2) downloads and installs on the dev box.
-- The dev box root volume carries the default tags (it has an explicit `Name` tag in case provider `default_tags` do not reach it).
+- The dev box root volume shows the project tags (set explicitly from the provider's default tags).
 - Container Insights writes to the managed `/aws/ecs/containerinsights/<cluster>/performance` log group, and Fargate tasks carry the propagated service tags.
 
 ## Cost

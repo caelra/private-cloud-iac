@@ -32,6 +32,7 @@ Every design choice, with alternatives and tradeoffs: [docs/decisions.md](docs/d
 bootstrap/            one-time stack: remote state bucket (local state)
 envs/dev/             root stack: wires the modules, backend, outputs, stack test
 modules/              network, endpoints, dev_env, app_build, app_service, monitoring
+                      (what each module does: docs/architecture.md#modules)
 app/Dockerfile        the sample app image (hello-app, :8080)
 scripts/validate.sh   live checks for each requirement
 docs/                 architecture diagram, decisions, validation
@@ -39,7 +40,7 @@ docs/                 architecture diagram, decisions, validation
 
 ## 3. Prerequisites
 
-- Terraform >= 1.10 and AWS credentials that can create the resources. The region comes from the `region` variable (default `us-east-1`). No local Docker: CodeBuild builds the image.
+- Terraform >= 1.10 and AWS credentials that can create the resources. The region comes from the `region` variable (default `us-east-1`); set `AWS_REGION` to match for manual `aws` commands (`scripts/validate.sh` sets it itself). No local Docker: CodeBuild builds the image.
 - For validation and dev-box access: AWS CLI v2, the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), `jq`.
 
 ## 4. Run it
@@ -92,12 +93,13 @@ Eight CloudWatch alarms (app health first, then NAT, build and dev box) notify a
 | An internet gateway exists, used only by the NAT | R2 | AWS NAT gateways require one | None needed; no route table points at it |
 | One-time bootstrap stack with local state | R1 | It creates the state bucket | Org-level state bucket from a platform stack |
 | HTTP, not HTTPS, inside the VPC | R4 | No certificate provisioned | HTTPS listener with AWS Private CA |
-| Dev box SSM traffic leaves via the NAT | R2, R3 | Saves about $22/month of endpoints | `ssm`, `ssmmessages`, `ec2messages` endpoints |
+| Dev box SSM traffic leaves via the NAT | R2, R3 | Saves about $22/month per AZ (about $44 here) of endpoints | `ssm`, `ssmmessages`, `ec2messages` endpoints |
 | `/home` survives stop/start and replacement, not destroy | R3 | No snapshot or backup | DLM or AWS Backup snapshots |
 | Only sessions using the custom document are logged | R2 | Plain `start-session` uses account defaults | Account-level session preferences, IAM enforcement |
 | Trigger Lambda runs outside the VPC | R2 | It only calls AWS APIs | Attach it to the egress subnets if policy requires |
 | `force_delete` on ECR, `force_destroy` on the build-source bucket | R1 | Clean teardown | Turn both off |
-| Image is amd64; the dev box is arm64 | R4 | Task definition pins X86_64 | Multi-arch build, or Fargate on Graviton |
+| Image is amd64; the dev box is arm64 | R4 | CodeBuild builds x86_64 for Fargate X86_64; base image not guaranteed multi-arch; Graviton dev box is cheaper | Multi-arch build, or Fargate on Graviton |
+| Isolated → egress connections are blocked by security groups | R2 | Least privilege; the route exists and egress → isolated is proven by the curl | Add a specific rule when a flow needs it |
 
 Longer explanations and production fixes: [docs/decisions.md](docs/decisions.md#exceptions-and-production-fixes).
 
@@ -109,6 +111,6 @@ terraform -chdir=bootstrap apply -var allow_destroy=true     # lets Terraform de
 terraform -chdir=bootstrap destroy -var allow_destroy=true
 ```
 
-Every taggable resource carries the tags `Project`, `Environment` and `ManagedBy`. The resource group named by the `resource_group` output lists everything with `Project=quadsci-exercise`, including the state bucket. Not everything can be tagged: AWS-managed ENIs (endpoints, ALB, NAT, tasks) are untagged but deleted with their parents, and the dashboard and IAM inline policies do not support tags. `terraform destroy` in `envs/dev` removes the environment; the bootstrap destroy removes the state bucket.
+Every taggable resource carries the tags `Project`, `Environment` and `ManagedBy`. The resource group named by the `resource_group` output lists everything with `Project=quadsci-exercise`, including the state bucket. Not everything can be tagged: AWS-managed ENIs (endpoints, ALB, NAT, tasks, CodeBuild) are untagged but deleted with their parents, and the dashboard and IAM inline policies do not support tags. `terraform destroy` in `envs/dev` removes the environment; the bootstrap destroy removes the state bucket.
 
 Cost: ≈ $5–8/day estimate, mostly NAT, interface endpoints and the ALB. Details in [docs/decisions.md](docs/decisions.md#cost).

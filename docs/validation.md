@@ -27,6 +27,7 @@ Expect `No changes.` and exit code `0`.
 ## R3 persistence proof
 
 ```bash
+export AWS_REGION=$(terraform -chdir=envs/dev output -raw region)
 ID=$(terraform -chdir=envs/dev output -raw dev_instance_id)
 $(terraform -chdir=envs/dev output -raw ssm_command)
 #   echo "persisted $(date)" > ~/proof.txt
