@@ -81,7 +81,7 @@ Still no inbound ports: the SSH stream rides the outbound SSM channel.
 
 ## Offline tests
 
-No AWS calls. CI (`.github/workflows/ci.yml`) runs the same checks on every push.
+No AWS calls. CI (`.github/workflows/ci.yml`) runs the same checks on every pull request and on pushes to main.
 
 ```bash
 for m in network dev_env app_service; do (cd modules/$m && terraform init -backend=false && terraform test); done

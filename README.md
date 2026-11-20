@@ -81,7 +81,7 @@ scripts/validate.sh    # live checks, PASS/FAIL per check, non-zero exit on any 
 - **R3, dev environment:** the script finds `/home` on a separate volume and the tooling installed; the stop/start and replace proofs show files and packages survive.
 - **R4, private app:** the script finds the ALB internal, the app returning 200 from the dev box but unreachable from your machine, and no public IP on task ENIs.
 
-Manual proofs (persistence, redeploy, failed build) and the offline test suite: [docs/validation.md](docs/validation.md). CI runs the offline checks on every push.
+Manual proofs (persistence, redeploy, failed build) and the offline test suite: [docs/validation.md](docs/validation.md). CI runs the offline checks on every pull request and on pushes to main.
 
 ## 7. Monitoring and alerting (bonus)
 
