@@ -26,6 +26,8 @@ Every significant choice, the alternatives considered, and what it costs. The
 | 16 | `monitoring` module: 8 alarms to an SNS topic, VPC flow logs, Container Insights, SSM session logs, one dashboard | Covers symptoms first (app health) and then causes (NAT, build, dev box) | Prometheus/Grafana or Datadog | Fine for one environment; see [Monitoring](architecture.md#monitoring) for scale |
 | 17 | Readiness inputs (`egress_ready`, `endpoints_ready`) instead of module-level `depends_on` | Module-level `depends_on` defers every data source in the module to apply time, which makes names and ARNs unknown and forces replacements on unrelated network changes | `depends_on` on the module blocks | Each module needs one extra input |
 | 18 | CodeBuild queue ≤ 5 min + build ≤ 9 min < 15-minute trigger Lambda; the trigger retries IAM-propagation `AccessDenied` errors with backoff and restarts a build once if it fails before the BUILD phase | The first build always ends before the Lambda does, so a retry cannot start a second build that collides on the immutable tag; a clean first apply survives IAM propagation and transient provisioning failures | Default 60-minute build timeout, no retries | A slow legitimate build over 9 minutes, or a queue over 5, fails. A restarted build can outlive the Lambda; the apply then fails, and the next apply reports `SKIPPED` once the image exists |
+| 19 | ECS target-tracking auto-scaling on average CPU (60%), min 2 (one task per AZ), max 4; `desired_count` is ignored after create so apply does not fight the scaler | The tier is stateless, so tasks are interchangeable and scale horizontally; two tasks survive an AZ loss | `ALBRequestCountPerTarget` tracking; scheduled scaling | CPU lags for I/O-bound apps, so request-count tracking would react sooner there |
+| 20 | CI (GitHub Actions) runs only offline checks on every push: `fmt`, `init -backend=false` and `validate` in all 8 directories, `terraform test`, the Lambda unit tests, `bash -n` | Catches breakage with no cloud credentials | Plan and apply in CI | Nothing is proven against AWS. A plan/apply job authenticating with OIDC is the production step |
 
 Backend configuration: the README passes the bucket and region as
 `-backend-config` flags read from `terraform -chdir=bootstrap output`. A team
@@ -46,6 +48,14 @@ and run `terraform init -backend-config=backend.hcl` instead.
 - **Image is built and run as linux/amd64** for Fargate. It is not meant to run on the arm64 dev box (`t4g.small`), which has no emulation set up. *Production:* multi-arch build, or Fargate on Graviton to match the dev box.
 - **Nothing has been applied yet.** The code is validated and tested offline with mocked providers only (see [validation](validation.md#offline-tests)). [Confirm at first apply](#confirm-at-first-apply) lists the places a first real run is most likely to need a small fix.
 - Default region `us-east-1`; a single environment (`dev`).
+
+## Considered and not applicable
+
+- **Cache tier:** not applicable because there is no data to cache. It would go in front of the data tier, or ElastiCache in the isolated tier.
+- **CDN:** not applicable because the app is internal and serves no public static content. It would go in front of a public ALB or S3 origin.
+- **Database, replication and sharding:** not applicable because the app is stateless and has no data. It would be a Multi-AZ managed database in a third, data subnet tier.
+- **Message queue:** not applicable because there is no async work. It would be SQS between the app and a worker service.
+- **Multi-region:** not applicable because this is a single-region exercise. It would be a second stack in another region behind DNS failover.
 
 ## Confirm at first apply
 

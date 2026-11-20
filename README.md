@@ -13,6 +13,7 @@ Terraform that builds a private AWS network, a persistent cloud dev environment 
 - **Egress** tier (dev box, CodeBuild): `0.0.0.0/0` routes to a regional NAT gateway, outbound only.
 - **Isolated** tier (internal ALB, ECS Fargate tasks, VPC endpoints): local route only, no internet route at all.
 - No resource has a public IP. The only public address is the NAT gateway's.
+- The stateless app tier auto-scales between 2 and 4 Fargate tasks on CPU.
 
 The egress tier reaches the isolated tier privately over the VPC local route (dev box → internal ALB). The reverse direction is possible at the route level, but security groups allow only what is needed.
 
@@ -80,7 +81,7 @@ scripts/validate.sh    # live checks, PASS/FAIL per check, non-zero exit on any 
 - **R3, dev environment:** the script finds `/home` on a separate volume and the tooling installed; the stop/start and replace proofs show files and packages survive.
 - **R4, private app:** the script finds the ALB internal, the app returning 200 from the dev box but unreachable from your machine, and no public IP on task ENIs.
 
-Manual proofs (persistence, redeploy, failed build) and the offline test suite: [docs/validation.md](docs/validation.md).
+Manual proofs (persistence, redeploy, failed build) and the offline test suite: [docs/validation.md](docs/validation.md). CI runs the offline checks on every push.
 
 ## 7. Monitoring and alerting (bonus)
 

@@ -88,13 +88,17 @@ Built by `modules/monitoring` and friends:
 
 At larger scale this would not be per-environment CloudWatch alarms written by hand. Metrics and alarms would be generated from shared module defaults per service and fed to one central account (CloudWatch cross-account observability, or Prometheus/Grafana or Datadog). Alerts would route by severity and ownership through an on-call tool rather than one SNS topic, and alarms would be tied to SLOs (error rate and latency burn) instead of fixed thresholds. Flow logs and session logs would go to a central log account with longer retention.
 
+## Scaling
+
+The app tier is stateless, so the ECS service auto-scales between 2 and 4 tasks to hold average CPU near 60%; the minimum of two keeps one task per AZ.
+
 ## Modules
 
 - `network`: VPC, egress and isolated subnets in two AZs, regional NAT gateway and its internet gateway, route tables, flow logs.
 - `endpoints`: the `ecr.api`, `ecr.dkr` and `logs` interface endpoints in the isolated subnets (security group allows HTTPS from the VPC) and the S3 gateway endpoint on both route tables.
 - `dev_env`: the private dev EC2 (AL2023 arm64, IMDSv2, no inbound rules), its encrypted `/home` volume, IAM role, and the logged SSM session document.
 - `app_build`: private ECR repository, S3 source bucket, CodeBuild project and the trigger Lambda that runs the build during apply.
-- `app_service`: ECS cluster, Fargate service and task definition, internal ALB, listener, target group and security groups.
+- `app_service`: ECS cluster, Fargate service and task definition, internal ALB, listener, target group, security groups, and CPU target-tracking auto-scaling (2 to 4 tasks).
 - `monitoring`: SNS alerts topic, the eight CloudWatch alarms and the dashboard.
 - `bootstrap/`: one-time stack with local state that creates the versioned, encrypted state bucket.
 - `envs/dev/`: root stack that wires the modules together, configures the S3 backend and provider default tags, and holds the stack test.

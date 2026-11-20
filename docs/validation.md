@@ -81,7 +81,7 @@ Still no inbound ports: the SSH stream rides the outbound SSM channel.
 
 ## Offline tests
 
-No AWS calls:
+No AWS calls. CI (`.github/workflows/ci.yml`) runs the same checks on every push.
 
 ```bash
 for m in network dev_env app_service; do (cd modules/$m && terraform init -backend=false && terraform test); done
@@ -90,7 +90,7 @@ python3 -m pytest modules/app_build/lambda                           # trigger L
 terraform fmt -check -recursive && bash -n scripts/validate.sh
 ```
 
-The module tests assert that subnets never assign public IPs, tier CIDRs do not collide, the instance is private with IMDSv2 and a separate encrypted home volume, the dev security group has no ingress, the ALB is internal, and tasks get no public IP.
+The module tests assert that subnets never assign public IPs, tier CIDRs do not collide, the instance is private with IMDSv2 and a separate encrypted home volume, the dev security group has no ingress, the ALB is internal, tasks get no public IP, and the service auto-scales between 2 and 4 tasks on CPU. Test runs: 3 (network), 3 (dev_env), 4 (app_service) and 1 (stack).
 
 ## Live results
 
