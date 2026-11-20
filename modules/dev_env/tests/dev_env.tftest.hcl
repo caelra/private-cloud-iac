@@ -26,6 +26,7 @@ variables {
   vpc_id            = "vpc-0123456789abcdef0"
   subnet_id         = "subnet-0123456789abcdef0"
   availability_zone = "us-east-1a"
+  egress_ready      = "nat-0123456789abcdef0"
 }
 
 run "instance_is_private_and_hardened" {

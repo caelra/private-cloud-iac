@@ -3,6 +3,11 @@ variable "name" {
   type        = string
 }
 
+variable "egress_ready" {
+  description = "Any value that is only known once the egress route (NAT) exists, e.g. the NAT gateway id. cloud-init installs packages from the internet, so the instance waits until the NAT route exists."
+  type        = string
+}
+
 variable "vpc_id" {
   type = string
 }

@@ -120,6 +120,12 @@ resource "aws_ebs_volume" "home" {
 
 # --- Instance -----------------------------------------------------------------
 
+# cloud-init installs packages from the internet; referencing the NAT id here lets
+# the instance wait until the route exists without a module-level depends_on.
+resource "terraform_data" "egress_ready" {
+  input = var.egress_ready
+}
+
 resource "aws_instance" "dev" {
   ami                         = data.aws_ssm_parameter.al2023.insecure_value
   instance_type               = var.instance_type
@@ -147,6 +153,8 @@ resource "aws_instance" "dev" {
   user_data_replace_on_change = true
 
   tags = { Name = "${var.name}-dev" }
+
+  depends_on = [terraform_data.egress_ready]
 
   lifecycle {
     # A new AMI release should not replace a developer's machine mid-week.
