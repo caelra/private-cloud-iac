@@ -1,0 +1,28 @@
+#cloud-config
+bootcmd:
+  - |
+    set -eu
+    DEV=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${home_volume_id}
+    for i in $(seq 1 150); do [ -e "$DEV" ] && break; sleep 2; done
+    [ -e "$DEV" ] || { echo "home volume never attached" >&2; exit 1; }
+    blkid "$DEV" >/dev/null 2>&1 || mkfs.xfs -L devhome "$DEV"
+    grep -q 'LABEL=devhome' /etc/fstab || echo 'LABEL=devhome /home xfs defaults,nofail 0 2' >> /etc/fstab
+    mountpoint -q /home || mount /home
+
+package_update: true
+packages:
+  - git
+  - docker
+  - tmux
+  - jq
+  - unzip
+  - python3-pip
+  - nodejs
+  - dnf-plugins-core
+
+runcmd:
+  - systemctl enable --now docker
+  - usermod -aG docker ec2-user
+  - dnf config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+  - dnf install -y terraform
+  - touch /var/lib/cloud/instance/dev-bootstrap-complete
