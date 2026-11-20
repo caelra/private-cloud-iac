@@ -9,3 +9,4 @@ tfplan
 __pycache__/
 .pytest_cache/
 .DS_Store
+modules/*/.terraform.lock.hcl

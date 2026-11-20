@@ -1,0 +1,2 @@
+bucket = "<output state_bucket from bootstrap/>"
+region = "us-east-1"
