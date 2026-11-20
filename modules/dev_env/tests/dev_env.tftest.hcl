@@ -14,6 +14,13 @@ mock_provider "aws" {
   }
 
   override_data {
+    target = data.aws_default_tags.current
+    values = {
+      tags = { Project = "test", Environment = "test", ManagedBy = "terraform" }
+    }
+  }
+
+  override_data {
     target = data.aws_region.current
     values = {
       region = "us-east-1"
@@ -40,6 +47,11 @@ run "instance_is_private_and_hardened" {
   assert {
     condition     = aws_instance.dev.metadata_options[0].http_tokens == "required"
     error_message = "IMDSv2 must be required."
+  }
+
+  assert {
+    condition     = aws_instance.dev.root_block_device[0].tags["Project"] == "test"
+    error_message = "Root volume must carry the project tags."
   }
 }
 

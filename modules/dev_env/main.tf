@@ -2,6 +2,8 @@ data "aws_partition" "current" {}
 
 data "aws_region" "current" {}
 
+data "aws_default_tags" "current" {}
+
 # Latest Amazon Linux 2023 arm64 AMI, published by AWS as a public parameter.
 data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
@@ -145,8 +147,8 @@ resource "aws_instance" "dev" {
     volume_size = var.root_volume_size_gb
     encrypted   = true
 
-    # Provider default_tags may not reach the root volume; set a tag explicitly.
-    tags = { Name = "${var.name}-dev-root" }
+    # Provider default_tags do not propagate to root_block_device, so merge them in.
+    tags = merge(data.aws_default_tags.current.tags, { Name = "${var.name}-dev-root" })
   }
 
   # The NVMe device name embeds the volume id without its dash.
