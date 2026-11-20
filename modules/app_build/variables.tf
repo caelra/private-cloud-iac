@@ -12,6 +12,11 @@ variable "subnet_ids" {
   type        = list(string)
 }
 
+variable "egress_ready" {
+  description = "Any value that is only known once the egress route (NAT) exists, e.g. the NAT gateway id. The build waits on it."
+  type        = string
+}
+
 variable "source_dir" {
   description = "Directory containing the Dockerfile."
   type        = string

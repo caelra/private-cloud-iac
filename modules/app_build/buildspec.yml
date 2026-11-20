@@ -7,6 +7,4 @@ phases:
   build:
     commands:
       - docker build --platform linux/amd64 -t "$REPO_URI:$IMAGE_TAG" .
-  post_build:
-    commands:
       - docker push "$REPO_URI:$IMAGE_TAG"

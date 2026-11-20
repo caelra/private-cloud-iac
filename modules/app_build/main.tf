@@ -12,7 +12,7 @@ locals {
   # The tag is the source hash: same source, same tag; new source, new deploy.
   image_tag  = substr(data.archive_file.source.output_sha256, 0, 12)
   source_key = "source/${local.image_tag}.zip"
-  registry   = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com"
+  registry   = split("/", aws_ecr_repository.app.repository_url)[0]
 }
 
 # --- Registry -----------------------------------------------------------------
@@ -179,6 +179,10 @@ resource "aws_codebuild_project" "app" {
   description  = "Builds app/Dockerfile and pushes to ECR"
   service_role = aws_iam_role.build.arn
 
+  # Minutes. Must finish before the 15-minute trigger Lambda gives up, otherwise
+  # a retry can start a second build that collides on the immutable tag.
+  build_timeout = 13
+
   artifacts {
     type = "NO_ARTIFACTS"
   }
@@ -290,6 +294,12 @@ resource "aws_lambda_function" "trigger" {
   depends_on = [aws_cloudwatch_log_group.trigger, aws_iam_role_policy.trigger]
 }
 
+# Carries the egress readiness signal (e.g. NAT gateway id) as a dependency edge,
+# so the build starts only after the route to the internet exists.
+resource "terraform_data" "egress_ready" {
+  input = var.egress_ready
+}
+
 resource "aws_lambda_invocation" "build" {
   function_name = aws_lambda_function.trigger.function_name
 
@@ -303,5 +313,5 @@ resource "aws_lambda_invocation" "build" {
     image_tag = local.image_tag
   }
 
-  depends_on = [aws_s3_object.source]
+  depends_on = [aws_s3_object.source, terraform_data.egress_ready]
 }
