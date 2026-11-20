@@ -55,8 +55,9 @@ locals {
       comparison  = "LessThanThreshold"
       threshold   = var.ecs_desired_count
       periods     = 3
-      missing     = "breaching"
-      dimensions  = local.ecs_dimensions
+      # Container Insights has no data at creation; the unhealthy-targets alarm still covers a dead app.
+      missing    = "notBreaching"
+      dimensions = local.ecs_dimensions
     }
     app-cpu-high = {
       description = "App CPU above 80%"

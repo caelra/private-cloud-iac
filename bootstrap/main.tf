@@ -59,6 +59,9 @@ resource "aws_s3_bucket_public_access_block" "state" {
 resource "aws_s3_bucket_policy" "state" {
   bucket = aws_s3_bucket.state.id
 
+  # Avoids S3 OperationAborted when several sub-resources mutate a new bucket at once.
+  depends_on = [aws_s3_bucket_public_access_block.state]
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

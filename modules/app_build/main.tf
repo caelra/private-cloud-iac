@@ -179,9 +179,10 @@ resource "aws_codebuild_project" "app" {
   description  = "Builds app/Dockerfile and pushes to ECR"
   service_role = aws_iam_role.build.arn
 
-  # Minutes. Must finish before the 15-minute trigger Lambda gives up, otherwise
-  # a retry can start a second build that collides on the immutable tag.
-  build_timeout = 13
+  # Minutes. Queue + build (14) must stay under the 15-minute trigger Lambda,
+  # otherwise a retry can start a second build that collides on the immutable tag.
+  queued_timeout = 5
+  build_timeout  = 9
 
   artifacts {
     type = "NO_ARTIFACTS"

@@ -72,7 +72,7 @@ check "dev box is managed by SSM (private access path works)" \
 EGRESS_IP=$(run_on_dev "curl -s -m 10 https://checkip.amazonaws.com" | tr -d '[:space:]')
 NAT_IPS=$(aws ec2 describe-nat-gateways \
   --filter "Name=vpc-id,Values=$VPC" "Name=state,Values=available" \
-  --query 'NatGateways[].NatGatewayAddresses[].PublicIp' --output text)
+  --query 'NatGateways[].NatGatewayAddresses[].PublicIp' --output text) || true
 if [ -n "$EGRESS_IP" ] && [[ " $(echo "$NAT_IPS" | tr -s '[:space:]' ' ') " == *" $EGRESS_IP "* ]]; then
   pass "egress tier reaches the internet through the NAT ($EGRESS_IP)"
 else
@@ -104,7 +104,7 @@ fi
 
 TASK_ENI_FILTERS=("Name=vpc-id,Values=$VPC" "Name=interface-type,Values=interface" "Name=description,Values=*ecs*")
 TASK_ENIS=$(aws ec2 describe-network-interfaces --filters "${TASK_ENI_FILTERS[@]}" \
-  --query 'length(NetworkInterfaces)' --output text)
+  --query 'length(NetworkInterfaces)' --output text) || TASK_ENIS="0"
 if [ "$TASK_ENIS" = "0" ]; then
   fail "no running ECS task ENIs found"
 else
