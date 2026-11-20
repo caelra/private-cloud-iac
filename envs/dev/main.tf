@@ -2,7 +2,8 @@ locals {
   name = "${var.project}-${var.environment}"
 }
 
-# Everything tagged Project=<project> shows up in one console view.
+# Everything tagged Project=<project> shows up in one console view, including
+# the shared state bucket from bootstrap/.
 resource "aws_resourcegroups_group" "project" {
   name = local.name
 
@@ -11,7 +12,6 @@ resource "aws_resourcegroups_group" "project" {
       ResourceTypeFilters = ["AWS::AllSupported"]
       TagFilters = [
         { Key = "Project", Values = [var.project] },
-        { Key = "Environment", Values = [var.environment] },
       ]
     })
   }

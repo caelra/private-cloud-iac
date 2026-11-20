@@ -22,4 +22,4 @@ packages:
 runcmd:
   - systemctl enable --now docker
   - usermod -aG docker ec2-user
-  - curl -fsSLo /tmp/terraform.zip https://releases.hashicorp.com/terraform/${terraform_version}/terraform_${terraform_version}_linux_arm64.zip && unzip -o /tmp/terraform.zip -d /usr/local/bin && rm -f /tmp/terraform.zip && touch /var/lib/cloud/instance/dev-bootstrap-complete
+  - curl -fsSLo /tmp/terraform.zip https://releases.hashicorp.com/terraform/${terraform_version}/terraform_${terraform_version}_linux_arm64.zip && unzip -o /tmp/terraform.zip terraform -d /usr/local/bin && rm -f /tmp/terraform.zip && touch /var/lib/cloud/instance/dev-bootstrap-complete

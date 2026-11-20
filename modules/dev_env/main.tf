@@ -144,6 +144,9 @@ resource "aws_instance" "dev" {
     volume_type = "gp3"
     volume_size = var.root_volume_size_gb
     encrypted   = true
+
+    # Provider default_tags may not reach the root volume; set a tag explicitly.
+    tags = { Name = "${var.name}-dev-root" }
   }
 
   # The NVMe device name embeds the volume id without its dash.

@@ -106,6 +106,13 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = var.log_retention_days
 }
 
+# Container Insights writes here. Managing the group keeps it tagged and removed on
+# destroy; it must exist before AWS creates it lazily with no retention.
+resource "aws_cloudwatch_log_group" "container_insights" {
+  name              = "/aws/ecs/containerinsights/${var.name}/performance"
+  retention_in_days = var.log_retention_days
+}
+
 resource "aws_ecs_cluster" "this" {
   name = var.name
 
@@ -113,6 +120,8 @@ resource "aws_ecs_cluster" "this" {
     name  = "containerInsights"
     value = "enabled"
   }
+
+  depends_on = [aws_cloudwatch_log_group.container_insights]
 }
 
 resource "aws_iam_role" "execution" {
@@ -191,6 +200,10 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
+
+  # Tasks carry the service's tags (the provider default_tags), plus ECS-managed ones.
+  propagate_tags          = "SERVICE"
+  enable_ecs_managed_tags = true
 
   # Apply returns only when the new tasks are healthy behind the ALB.
   wait_for_steady_state = true

@@ -11,18 +11,21 @@ variable "project" {
 }
 
 variable "environment" {
-  type    = string
-  default = "dev"
+  description = "Environment name; used for naming and the Environment tag."
+  type        = string
+  default     = "dev"
 }
 
 variable "vpc_cidr" {
-  type    = string
-  default = "10.20.0.0/16"
+  description = "VPC CIDR block; the egress and isolated subnets are carved from it."
+  type        = string
+  default     = "10.20.0.0/16"
 }
 
 variable "dev_instance_type" {
-  type    = string
-  default = "t4g.small"
+  description = "EC2 instance type for the dev box; must be arm64 (Graviton) to match the AMI and tooling downloads."
+  type        = string
+  default     = "t4g.small"
 }
 
 variable "alert_email" {

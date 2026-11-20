@@ -9,3 +9,9 @@ variable "project" {
   type        = string
   default     = "quadsci-exercise"
 }
+
+variable "allow_destroy" {
+  description = "Set true only to tear down the state bucket; lets Terraform delete it with all state versions."
+  type        = bool
+  default     = false
+}

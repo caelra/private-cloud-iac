@@ -1,5 +1,5 @@
 output "state_bucket" {
-  description = "Bucket name to put in envs/<env>/backend.hcl."
+  description = "State bucket name for the envs/<env> S3 backend."
   value       = aws_s3_bucket.state.bucket
 }
 

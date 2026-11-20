@@ -15,11 +15,12 @@ terraform {
 provider "aws" {
   region = var.region
 
+  # Same tag set as envs/*. The state bucket is shared by all environments.
   default_tags {
     tags = {
-      Project   = var.project
-      ManagedBy = "terraform"
-      Stack     = "bootstrap"
+      Project     = var.project
+      Environment = "shared"
+      ManagedBy   = "terraform"
     }
   }
 }
@@ -27,7 +28,8 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "state" {
-  bucket = "${var.project}-tfstate-${data.aws_caller_identity.current.account_id}-${var.region}"
+  bucket        = "${var.project}-tfstate-${data.aws_caller_identity.current.account_id}-${var.region}"
+  force_destroy = var.allow_destroy
 }
 
 resource "aws_s3_bucket_versioning" "state" {
