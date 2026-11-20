@@ -148,7 +148,8 @@ resource "aws_instance" "dev" {
 
   # The NVMe device name embeds the volume id without its dash.
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    home_volume_id = replace(aws_ebs_volume.home.id, "-", "")
+    home_volume_id    = replace(aws_ebs_volume.home.id, "-", "")
+    terraform_version = var.terraform_version
   })
   user_data_replace_on_change = true
 

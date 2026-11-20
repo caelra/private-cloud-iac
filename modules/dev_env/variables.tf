@@ -28,6 +28,12 @@ variable "instance_type" {
   default     = "t4g.small"
 }
 
+variable "terraform_version" {
+  description = "Terraform CLI version installed on the dev box."
+  type        = string
+  default     = "1.17.2"
+}
+
 variable "root_volume_size_gb" {
   type    = number
   default = 30
