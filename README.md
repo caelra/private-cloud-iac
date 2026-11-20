@@ -14,7 +14,7 @@ Architecture diagram, with traffic direction and how each private resource is re
 
 | # | Choice | Why | Alternative rejected | Tradeoff |
 |---|---|---|---|---|
-| 1 | AWS | Strongest platform for the author; the exercise allows any | Other clouds | None relevant |
+| 1 | AWS | Strongest platform for the author; the exercise allows any | Other clouds | Uses AWS-specific services and the IAM model; moving to GCP or Azure means re-implementing the modules |
 | 2 | `egress` and `isolated` tiers, each in 2 AZs | An ALB needs two AZs, and two AZs is the realistic shape | Single AZ | Roughly double the subnets and endpoint ENIs |
 | 3 | Regional NAT gateway, no public subnet | One NAT spans AZs, so the VPC needs no public subnet at all | Zonal NAT in a public subnet (classic); NAT instance | Newer feature; a NAT gateway still needs an internet gateway to exist (see section 8) |
 | 4 | SSM Session Manager for human access | IAM auth, no inbound ports, session logging, port forwarding, Remote-SSH via ProxyCommand | Bastion host (public IP); Client VPN (cost, certificates); EC2 Instance Connect Endpoint (SSH only, weaker audit) | Needs AWS CLI and the Session Manager plugin on the developer machine |
@@ -25,7 +25,7 @@ Architecture diagram, with traffic direction and how each private resource is re
 | 9 | Internal ALB, HTTP :80, security group allows the VPC CIDR only; tasks accept :8080 only from the ALB security group | Health-checked stable endpoint with ALB metrics | Service Connect / Cloud Map (no ALB metrics or health-checked endpoint) | HTTP inside the VPC. HTTPS with a private CA is the production step |
 | 10 | CodeBuild in the egress subnets (privileged), source is a zip of `app/` uploaded to S3 by Terraform | Build runs in AWS, so the applying machine needs no Docker and there is no arm64/amd64 mismatch | Local Docker provider | Extra moving parts: S3 object, CodeBuild project, Lambda |
 | 11 | `aws_lambda_invocation` starts the build and waits for it | Apply stays pure Terraform, no AWS CLI `local-exec` | `local-exec` with the AWS CLI | The Lambda is a small piece of code to maintain; it runs outside the VPC |
-| 12 | Image tag is the first 12 chars of the `app/` source hash; ECR tags are immutable | Traceable, and a changed source always makes a new task definition | `latest` | Re-applying unchanged source reports `SKIPPED` rather than rebuilding |
+| 12 | Image tag is the first 12 chars of the `app/` source hash; ECR tags are immutable | Traceable, and a changed source always makes a new task definition | `latest` | Unchanged source never invokes the build again; `SKIPPED` appears only when the source reverts to a tag already in ECR |
 | 13 | Private ECR, scan on push, lifecycle keeps last 10 images, `force_delete` | The isolated tier cannot pull a public image at runtime, and the app is freshly built | Pulling the public image directly | `force_delete` removes images on destroy |
 | 14 | Separate `bootstrap/` stack creates a versioned, encrypted, public-access-blocked state bucket; the main stack uses the S3 backend with `use_lockfile` | Shared remote state with S3-native locking, no DynamoDB | DynamoDB lock table (older pattern); local state only | One extra one-time step, and the bootstrap stack itself uses local state |
 | 15 | Provider `default_tags` (`Project`, `Environment`, `ManagedBy`) plus an `aws_resourcegroups_group` on those tags | One console view of everything | None | Tag-based grouping only covers taggable resources |
@@ -55,7 +55,7 @@ scripts/validate.sh   live checks for each requirement
 ## 3. Prerequisites
 
 - Terraform >= 1.10
-- AWS credentials with permission to create the resources above, with a default region or `AWS_REGION` (the default region is `us-east-1`)
+- AWS credentials with permission to create the resources above, (the region comes from the `region` variable, default `us-east-1`; set `AWS_REGION` to match only for manual `aws` CLI commands, since `validate.sh` sets it itself)
 - For validation and dev-box access only: AWS CLI v2, the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), `jq`
 
 No local Docker is needed. The image is built by CodeBuild.
@@ -90,10 +90,10 @@ Outputs: `region`, `vpc_id`, `isolated_route_table_id`, `dev_instance_id`, `ssm_
 ## 5. Connect to the dev box
 
 ```bash
-$(terraform output -raw ssm_command)
+$(terraform -chdir=envs/dev output -raw ssm_command)
 ```
 
-This runs `aws ssm start-session --target <instance-id> --document-name <name>-dev-session`. The session document opens a shell as `ec2-user` in `/home/ec2-user` and logs the session to CloudWatch.
+Run from the repository root. This runs `aws ssm start-session --target <instance-id> --document-name <name>-dev-session`. The session document opens a shell as `ec2-user` in `/home/ec2-user` and logs the session to CloudWatch.
 
 Optional VS Code Remote-SSH over SSM. Add your public key to `~/.ssh/authorized_keys` on the dev box first (it persists on the home volume), then in `~/.ssh/config`:
 
@@ -116,7 +116,7 @@ scripts/validate.sh
 
 It covers requirements 2 to 4 below. Requirement 1 is the apply itself. Manual commands for the rest follow.
 
-**R1. Everything is created by `terraform apply`.** `terraform apply` from a clean checkout, then `terraform plan -detailed-exitcode` from `envs/dev`; expect `No changes.` and exit code `0`.
+**R1. Everything is created by `terraform apply`.** `terraform apply` from a clean checkout, then `terraform -chdir=envs/dev plan -detailed-exitcode`; expect `No changes.` and exit code `0`.
 
 **R2. Private network, no public IPs, egress only where intended.** `validate.sh` checks that no instance or network interface has a public IP except the NAT gateway, that the isolated route table has no `0.0.0.0/0` route, that the dev security group has no inbound rules, that the dev box is `Online` in SSM, and that the dev box's public egress IP equals the NAT gateway's.
 
@@ -135,27 +135,27 @@ aws ec2 start-instances --instance-ids "$ID" && aws ec2 wait instance-status-ok 
 Then prove the volume outlives the instance:
 
 ```bash
-cd envs/dev && terraform apply -replace=module.dev_env.aws_instance.dev -auto-approve
+terraform -chdir=envs/dev apply -replace=module.dev_env.aws_instance.dev -auto-approve
 # reconnect with the new ssm_command: cat ~/proof.txt   -> still there
 ```
 
-**R4. Private container app, built from source.** `validate.sh` checks that the ALB is `internal`, that `app_url` returns 200 from the dev box, that it is *not* reachable from your machine, and that running task ENIs have no public IP. By hand: from the dev box, `curl -i "$(terraform output -raw app_url)"`.
+**R4. Private container app, built from source.** `validate.sh` checks that the ALB is `internal`, that `app_url` returns 200 from the dev box, that it is *not* reachable from your machine, and that running task ENIs have no public IP. By hand: get the URL on your machine with `terraform -chdir=envs/dev output -raw app_url`, then run `curl -i <url>` inside an SSM session on the dev box.
 
 Redeploy after a source change (new tag, new task definition, rolling update):
 
 ```bash
 echo '# rebuild marker' >> app/Dockerfile
-cd envs/dev && terraform apply -auto-approve && terraform output image_uri   # new tag
-git -C ../.. checkout app/Dockerfile
-terraform apply -auto-approve    # back to the committed tag; the build reports SKIPPED (tag exists)
+terraform -chdir=envs/dev apply -auto-approve && terraform -chdir=envs/dev output image_uri   # new tag
+git checkout app/Dockerfile
+terraform -chdir=envs/dev apply -auto-approve    # back to the committed tag; the build reports SKIPPED (tag exists)
 ```
 
 Failed build leaves the running service untouched:
 
 ```bash
 printf 'FROM does-not-exist.invalid/nope:0\n' > app/Dockerfile
-cd envs/dev && terraform apply -auto-approve; echo "exit=$?"   # fails at aws_lambda_invocation.build
-git -C ../.. checkout app/Dockerfile
+terraform -chdir=envs/dev apply -auto-approve; echo "exit=$?"   # fails at aws_lambda_invocation.build
+git checkout app/Dockerfile
 scripts/validate.sh    # still passes
 ```
 
@@ -176,7 +176,7 @@ Built by `modules/monitoring` and friends:
 
 - **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, running tasks below desired, ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them.
 - **Dashboard** named by the `dashboard_name` output: requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
-- **Logs:** app and build logs and SSM session logs in CloudWatch (14-day retention default), VPC flow logs (all traffic), Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
+- **Logs:** app, build and VPC flow logs in CloudWatch (14-day retention default), SSM session logs (30 days), VPC flow logs capture all traffic, Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
 
 At larger scale this would not be per-environment CloudWatch alarms written by hand. Metrics and alarms would be generated from shared module defaults per service and fed to one central account (CloudWatch cross-account observability, or Prometheus/Grafana or Datadog). Alerts would route by severity and ownership through an on-call tool rather than one SNS topic, and alarms would be tied to SLOs (error rate and latency burn) instead of fixed thresholds. Flow logs and session logs would go to a central log account with longer retention.
 
@@ -191,7 +191,7 @@ At larger scale this would not be per-environment CloudWatch alarms written by h
 - **Bootstrap stack uses local state**, as explained in section 4.
 - **`/home` survives stop/start and instance replacement but not `terraform destroy`.** There is no snapshot or backup.
 - **`force_delete` on ECR and `force_destroy` on the build-source bucket** so destroy always succeeds. Not for production.
-- **Image is built and run as linux/amd64**; the dev box is arm64 (`t4g.small`), so run containers from it with `--platform linux/amd64` or it will pull the wrong architecture.
+- **Image is built and run as linux/amd64** for Fargate. It is not meant to run on the arm64 dev box (`t4g.small`), which has no emulation set up.
 - **Items to confirm at first apply:** the HashiCorp yum repo on AL2023 (`$releasever`) for the dev box's Terraform install, regional NAT metrics under `AWS/NATGateway` with the `NatGatewayId` dimension, the NAT interface-type filter in `validate.sh`, and the Fargate ENI description match (`*ecs*`) in `validate.sh`. Nothing has been applied yet; these are the places a real run is most likely to need a small fix.
 - Default region `us-east-1`; a single environment (`dev`).
 
@@ -200,9 +200,9 @@ At larger scale this would not be per-environment CloudWatch alarms written by h
 Rough cost while running is on the order of $5 to $8 per day, mostly the NAT gateway, three interface endpoints across two AZs, the ALB and two small Fargate tasks. This is an estimate from list prices, not a measurement. The dev box can be stopped between uses; the home volume keeps its data.
 
 ```bash
-cd envs/dev && terraform destroy
-# then the state bucket: empty it (all object versions), then
-cd ../../bootstrap && terraform destroy
+terraform -chdir=envs/dev destroy
+# then the state bucket: S3 console -> bucket -> Empty (it is versioned), then
+terraform -chdir=bootstrap destroy
 ```
 
 Everything is in the resource group named by the `resource_group` output (`quadsci-exercise-dev`) and tagged `Project=quadsci-exercise`, so leftovers are easy to find in the console.

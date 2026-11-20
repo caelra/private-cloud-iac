@@ -9,12 +9,12 @@ flowchart TB
   subgraph vpc["VPC 10.20.0.0/16 — no resource has a public IP"]
     nat[Regional NAT gateway<br/>only public address]
 
-    subgraph egress["Egress tier — 2 AZs — 0.0.0.0/0 → NAT"]
+    subgraph egress["Egress tier — 10.20.0.0/24, 10.20.1.0/24 — 2 AZs — 0.0.0.0/0 → NAT"]
       ec2[Dev EC2<br/>EBS volume at /home]
       cb[CodeBuild<br/>docker build + push]
     end
 
-    subgraph isolated["Isolated tier — 2 AZs — local route only"]
+    subgraph isolated["Isolated tier — 10.20.10.0/24, 10.20.11.0/24 — 2 AZs — local route only"]
       alb[Internal ALB :80]
       ecs[ECS Fargate tasks :8080<br/>hello-app]
       vpce[VPC endpoints<br/>ecr.api · ecr.dkr · logs · S3 gateway]
