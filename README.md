@@ -19,7 +19,7 @@ Architecture diagram, with traffic direction and how each private resource is re
 | 3 | Regional NAT gateway, no public subnet | One NAT spans AZs, so the VPC needs no public subnet at all | Zonal NAT in a public subnet (classic); NAT instance | Newer feature; a NAT gateway still needs an internet gateway to exist (see section 8) |
 | 4 | SSM Session Manager for human access | IAM auth, no inbound ports, session logging, port forwarding, Remote-SSH via ProxyCommand | Bastion host (public IP); Client VPN (cost, certificates); EC2 Instance Connect Endpoint (SSH only, weaker audit) | Needs AWS CLI and the Session Manager plugin on the developer machine |
 | 5 | Dev box reaches SSM through the NAT | Saves about $22/month of `ssm`, `ssmmessages`, `ec2messages` endpoints | Interface endpoints for those three services | SSM traffic leaves via the NAT public IP. Endpoints are the production hardening step |
-| 6 | EC2 AL2023 arm64 `t4g.small`, IMDSv2 required, separate encrypted gp3 volume at `/home`, tooling by cloud-init | Simple persistent-disk story: `/home` outlives the instance | Cloud9 (closed to new customers); WorkSpaces (heavy, slow); devcontainer on Fargate (no simple persistent disk) | `/home` survives stop/start and instance replacement but not `terraform destroy` |
+| 6 | EC2 AL2023 arm64 `t4g.small`, IMDSv2 required, separate encrypted gp3 volume at `/home`, tooling by cloud-init (Terraform from the pinned HashiCorp release zip, `dev_env` variable `terraform_version`, not a yum repo) | Simple persistent-disk story: `/home` outlives the instance | Cloud9 (closed to new customers); WorkSpaces (heavy, slow); devcontainer on Fargate (no simple persistent disk) | `/home` survives stop/start and instance replacement but not `terraform destroy` |
 | 7 | ECS Fargate | Container runtime with no nodes to manage | EKS (control plane for one container); App Runner (awkward private ingress); Lambda (not a container runtime in spirit) | Fargate costs more per vCPU than EC2 capacity |
 | 8 | App in the isolated tier | Proves the tier is usable with no internet route | App in the egress tier | Needs VPC endpoints (`ecr.api`, `ecr.dkr`, `logs`, S3 gateway) for pull and logs |
 | 9 | Internal ALB, HTTP :80, security group allows the VPC CIDR only; tasks accept :8080 only from the ALB security group | Health-checked stable endpoint with ALB metrics | Service Connect / Cloud Map (no ALB metrics or health-checked endpoint) | HTTP inside the VPC. HTTPS with a private CA is the production step |
@@ -31,7 +31,7 @@ Architecture diagram, with traffic direction and how each private resource is re
 | 15 | Provider `default_tags` (`Project`, `Environment`, `ManagedBy`) plus an `aws_resourcegroups_group` on those tags | One console view of everything | None | Tag-based grouping only covers taggable resources |
 | 16 | `monitoring` module: 8 alarms to an SNS topic, VPC flow logs, Container Insights, SSM session logs, one dashboard | Covers symptoms first (app health) and then causes (NAT, build, dev box) | Prometheus/Grafana or Datadog | Fine for one environment; see section 7 for scale |
 | 17 | Readiness inputs (`egress_ready`, `endpoints_ready`) instead of module-level `depends_on` | Module-level `depends_on` defers every data source in the module to apply time, which makes names and ARNs unknown and forces replacements on unrelated network changes | `depends_on` on the module blocks | Each module needs one extra input |
-| 18 | CodeBuild `build_timeout` is 13 minutes, the trigger Lambda gives up at 15 | A build always ends before the Lambda does, so a retry cannot start a second build that collides on the immutable tag | Default 60-minute build timeout | A slow legitimate build over 13 minutes fails |
+| 18 | CodeBuild queue ≤ 5 min + build ≤ 9 min < 15-minute trigger Lambda; the trigger retries IAM-propagation `AccessDenied` errors with backoff and restarts a build once if it fails before the BUILD phase | A build always ends before the Lambda does, so a retry cannot start a second build that collides on the immutable tag; a clean first apply survives IAM propagation and transient provisioning failures | Default 60-minute build timeout, no retries | A slow legitimate build over 9 minutes, or a queue over 5, fails |
 
 ## 2. Repository layout
 
@@ -55,7 +55,7 @@ scripts/validate.sh   live checks for each requirement
 ## 3. Prerequisites
 
 - Terraform >= 1.10
-- AWS credentials with permission to create the resources above, (the region comes from the `region` variable, default `us-east-1`; set `AWS_REGION` to match only for manual `aws` CLI commands, since `validate.sh` sets it itself)
+- AWS credentials with permission to create the resources above. The region comes from the `region` variable (default `us-east-1`); set `AWS_REGION` to match only for manual `aws` CLI commands, since `validate.sh` sets it itself.
 - For validation and dev-box access only: AWS CLI v2, the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html), `jq`
 
 No local Docker is needed. The image is built by CodeBuild.
@@ -176,7 +176,7 @@ Built by `modules/monitoring` and friends:
 
 - **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, running tasks below desired, ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them.
 - **Dashboard** named by the `dashboard_name` output: requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
-- **Logs:** app, build and VPC flow logs in CloudWatch (14-day retention default), SSM session logs (30 days), VPC flow logs capture all traffic, Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
+- **Logs:** app, build, trigger Lambda and VPC flow logs (all traffic) in CloudWatch with 14-day retention by default, SSM session logs with 30 days, and Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
 
 At larger scale this would not be per-environment CloudWatch alarms written by hand. Metrics and alarms would be generated from shared module defaults per service and fed to one central account (CloudWatch cross-account observability, or Prometheus/Grafana or Datadog). Alerts would route by severity and ownership through an on-call tool rather than one SNS topic, and alarms would be tied to SLOs (error rate and latency burn) instead of fixed thresholds. Flow logs and session logs would go to a central log account with longer retention.
 
@@ -192,7 +192,7 @@ At larger scale this would not be per-environment CloudWatch alarms written by h
 - **`/home` survives stop/start and instance replacement but not `terraform destroy`.** There is no snapshot or backup.
 - **`force_delete` on ECR and `force_destroy` on the build-source bucket** so destroy always succeeds. Not for production.
 - **Image is built and run as linux/amd64** for Fargate. It is not meant to run on the arm64 dev box (`t4g.small`), which has no emulation set up.
-- **Items to confirm at first apply:** the HashiCorp yum repo on AL2023 (`$releasever`) for the dev box's Terraform install, regional NAT metrics under `AWS/NATGateway` with the `NatGatewayId` dimension, the NAT interface-type filter in `validate.sh`, and the Fargate ENI description match (`*ecs*`) in `validate.sh`. Nothing has been applied yet; these are the places a real run is most likely to need a small fix.
+- **Items to confirm at first apply:** regional NAT metrics under `AWS/NATGateway` with the `NatGatewayId` dimension, the NAT interface-type filter in `validate.sh`, the Fargate ENI description match (`*ecs*`) in `validate.sh`, that regional NAT auto mode may take minutes to expand into an AZ when the first workloads appear, and that a second plan shows no diff on the regional NAT (`availability_zone_address` read-back). Nothing has been applied yet; these are the places a real run is most likely to need a small fix.
 - Default region `us-east-1`; a single environment (`dev`).
 
 ## 9. Cost and cleanup
