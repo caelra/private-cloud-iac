@@ -106,22 +106,17 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = var.log_retention_days
 }
 
-# Container Insights writes here. Managing the group keeps it tagged and removed on
-# destroy; it must exist before AWS creates it lazily with no retention.
-resource "aws_cloudwatch_log_group" "container_insights" {
-  name              = "/aws/ecs/containerinsights/${var.name}/performance"
-  retention_in_days = var.log_retention_days
-}
-
 resource "aws_ecs_cluster" "this" {
   name = var.name
 
+  # Container Insights is off on purpose. With it on, AWS re-creates its log
+  # group a few minutes after `terraform destroy` deletes it, which leaves an
+  # untagged leftover and makes the next apply fail on "already exists".
+  # Service CPU, memory and load-balancer metrics need no extra log group.
   setting {
     name  = "containerInsights"
-    value = "enabled"
+    value = "disabled"
   }
-
-  depends_on = [aws_cloudwatch_log_group.container_insights]
 }
 
 resource "aws_iam_role" "execution" {

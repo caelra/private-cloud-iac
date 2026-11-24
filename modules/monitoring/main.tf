@@ -47,17 +47,17 @@ locals {
       missing     = "notBreaching"
       dimensions  = local.alb_dimensions
     }
-    app-running-tasks-low = {
-      description = "Fewer app tasks running than desired"
-      namespace   = "ECS/ContainerInsights"
-      metric      = "RunningTaskCount"
+    app-healthy-targets-low = {
+      description = "Fewer healthy app tasks behind the load balancer than the minimum"
+      namespace   = "AWS/ApplicationELB"
+      metric      = "HealthyHostCount"
       statistic   = "Minimum"
       comparison  = "LessThanThreshold"
       threshold   = var.ecs_desired_count
       periods     = 3
-      # Container Insights has no data at creation; the unhealthy-targets alarm still covers a dead app.
+      # No data in the first minutes after creation; the unhealthy-targets alarm still covers a dead app.
       missing    = "notBreaching"
-      dimensions = local.ecs_dimensions
+      dimensions = local.alb_dimensions
     }
     app-cpu-high = {
       description = "App CPU above 80%"
