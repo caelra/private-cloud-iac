@@ -63,8 +63,10 @@ flowchart TB
 
 The developer laptop runs Terraform and the AWS CLI; it never opens a
 connection into the VPC. The internet gateway is attached to the VPC only
-because a NAT gateway requires one; only the NAT uses it, and no route table
-points at it.
+because a NAT gateway requires one; only the NAT uses it, and no subnet route
+table points at it. The regional NAT gateway gets its own AWS-managed route
+table (associated with the gateway, not with any subnet) holding
+`0.0.0.0/0 → internet gateway`; that is the only route to it.
 
 ## How each private resource is reached
 
@@ -109,7 +111,7 @@ The app tier is stateless, so the ECS service auto-scales between 2 and 4 tasks 
 - `network`: VPC, egress and isolated subnets in two AZs, regional NAT gateway and its internet gateway, route tables, flow logs.
 - `endpoints`: the `ecr.api`, `ecr.dkr` and `logs` interface endpoints in the isolated subnets (security group allows HTTPS from the VPC) and the S3 gateway endpoint on both route tables.
 - `dev_env`: the private dev EC2 (AL2023 arm64, IMDSv2, no inbound rules), its encrypted `/home` volume, IAM role, and the logged SSM session document.
-- `app_build`: private ECR repository, S3 source bucket, CodeBuild project and the trigger Lambda that runs the build during apply.
+- `app_build`: private ECR repository, S3 source bucket, CodeBuild project and the trigger Lambda that runs the build during apply, once the NAT route and the VPC endpoints exist (`egress_ready`, `endpoints_ready`); the buildspec retries the registry login.
 - `app_service`: ECS cluster, Fargate service and task definition, internal ALB, listener, target group, security groups, and CPU target-tracking auto-scaling (2 to 4 tasks).
 - `monitoring`: SNS alerts topic, the eight CloudWatch alarms and the dashboard.
 - `bootstrap/`: one-time stack with local state that creates the versioned, encrypted state bucket.

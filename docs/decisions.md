@@ -24,10 +24,11 @@ Every significant choice, the alternatives considered, and what it costs. The
 | 14 | Separate `bootstrap/` stack creates a versioned, encrypted, public-access-blocked state bucket; the main stack uses the S3 backend with `use_lockfile`, configured with `-backend-config` flags read from the bootstrap outputs | Shared remote state with S3-native locking, no DynamoDB, no account-specific value committed | DynamoDB lock table (older pattern); local state only | One extra one-time step, and the bootstrap stack itself uses local state |
 | 15 | One tag set on every taggable resource through provider `default_tags` (`Project`, `Environment`, `ManagedBy`; the bootstrap stack uses `Environment = "shared"`), propagated to Fargate tasks, plus an `aws_resourcegroups_group` filtered on `Project` | One console view of everything, including the state bucket | None | Tag-based grouping only covers taggable resources: AWS-managed ENIs, the dashboard and IAM inline policies have no tags |
 | 16 | `monitoring` module: 8 alarms to an SNS topic, VPC flow logs, Container Insights, SSM session logs, one dashboard | Covers symptoms first (app health) and then causes (NAT, build, dev box) | Prometheus/Grafana or Datadog | Fine for one environment; see [Monitoring](architecture.md#monitoring) for scale |
-| 17 | Readiness inputs (`egress_ready`, `endpoints_ready`) instead of module-level `depends_on` | Module-level `depends_on` defers every data source in the module to apply time, which makes names and ARNs unknown and forces replacements on unrelated network changes | `depends_on` on the module blocks | Each module needs one extra input |
+| 17 | Readiness inputs instead of module-level `depends_on`: `app_service` takes `endpoints_ready`; `app_build` takes both `egress_ready` (NAT route) and `endpoints_ready` (VPC endpoints) | Module-level `depends_on` defers every data source in the module to apply time, which makes names and ARNs unknown and forces replacements on unrelated network changes | `depends_on` on the module blocks | Each module needs one extra input |
 | 18 | CodeBuild queue ≤ 5 min + build ≤ 9 min < 15-minute trigger Lambda; the trigger retries IAM-propagation `AccessDenied` errors with backoff and restarts a build once if it fails before the BUILD phase | The first build always ends before the Lambda does, so a retry cannot start a second build that collides on the immutable tag; a clean first apply survives IAM propagation and transient provisioning failures | Default 60-minute build timeout, no retries | A slow legitimate build over 9 minutes, or a queue over 5, fails. A restarted build can outlive the Lambda; the apply then fails, and the next apply reports `SKIPPED` once the image exists |
 | 19 | ECS target-tracking auto-scaling on average CPU (60%), min 2 (one task per AZ), max 4; `desired_count` is ignored after create so apply does not fight the scaler | The tier is stateless, so tasks are interchangeable and scale horizontally; two tasks survive an AZ loss | `ALBRequestCountPerTarget` tracking; scheduled scaling | CPU lags for I/O-bound apps, so request-count tracking would react sooner there |
 | 20 | CI (GitHub Actions) runs only offline checks on every pull request and on pushes to main: `fmt`, `init -backend=false` and `validate` in all 8 directories, `terraform test`, the Lambda unit tests, `bash -n` | Catches breakage with no cloud credentials | Plan and apply in CI | Nothing is proven against AWS. A plan/apply job authenticating with OIDC is the production step |
+| 21 | The build starts only after the NAT route and the VPC endpoints exist, and the buildspec retries the ECR login up to 4 times, 15 s apart | On the first real apply the first build failed in PRE_BUILD: `docker login` to ECR timed out in the minutes-old VPC. The trigger's restart-once (row 18) started a second build, which succeeded, so the apply passed, but a first build should not depend on a retry | Rely on the trigger's restart alone | A slow-to-warm network adds up to 45 s to a build. The exact cause (endpoint warm-up or the regional NAT expanding into the AZ) was not isolated; the fix covers both |
 
 Backend configuration: the README passes the bucket and region as
 `-backend-config` flags read from `terraform -chdir=bootstrap output`. A team
@@ -36,7 +37,7 @@ and run `terraform init -backend-config=backend.hcl` instead.
 
 ## Exceptions and production fixes
 
-- **Internet gateway exists only for the NAT.** Any NAT gateway requires one. No route table points at it, so nothing is reachable from the internet. *Production:* the same; this is how AWS NAT works.
+- **Internet gateway exists only for the NAT.** Any NAT gateway requires one. No subnet route table points at it, so nothing is reachable from the internet. The only route to it (`0.0.0.0/0`) is in the route table AWS creates for the regional NAT gateway and associates with the gateway itself, not with any subnet; a subnet is public only if its own route table routes to an internet gateway. *Production:* the same; this is how AWS NAT works.
 - **No NAT-only public subnet** because the regional NAT gateway needs none. If the regional mode were unavailable, the zonal fallback would need a small public subnet.
 - **HTTP inside the VPC** between clients and the internal ALB, and between the ALB and tasks. No TLS certificate is provisioned. *Production:* HTTPS listener with a certificate from AWS Private CA.
 - **SSM traffic leaves through the NAT** (no `ssm`/`ssmmessages`/`ec2messages` endpoints), to save cost. *Production:* add those three interface endpoints so the dev box needs no internet path for access.
@@ -46,7 +47,7 @@ and run `terraform init -backend-config=backend.hcl` instead.
 - **`/home` survives stop/start and instance replacement but not `terraform destroy`.** There is no snapshot or backup. *Production:* AWS Backup or a Data Lifecycle Manager snapshot policy on the home volume.
 - **`force_delete` on ECR and `force_destroy` on the build-source bucket** so destroy always succeeds. The state bucket gets `force_destroy` only when `allow_destroy = true`. *Production:* turn these off.
 - **Image is built and run as linux/amd64** for Fargate. It is not meant to run on the arm64 dev box (`t4g.small`), which has no emulation set up. *Production:* multi-arch build, or Fargate on Graviton to match the dev box.
-- **Nothing has been applied yet.** The code is validated and tested offline with mocked providers only (see [validation](validation.md#offline-tests)). [Confirm at first apply](#confirm-at-first-apply) lists the places a first real run is most likely to need a small fix.
+- **Applied and verified once from zero** in the review account (see [Live results](validation.md#live-results)). [Verified at first apply](#verified-at-first-apply) gives the outcome of each item flagged before that run, and what is still unverified.
 - Default region `us-east-1`; a single environment (`dev`).
 
 ## Considered and not applicable
@@ -57,16 +58,26 @@ and run `terraform init -backend-config=backend.hcl` instead.
 - **Message queue:** not applicable because there is no async work. It would be SQS between the app and a worker service.
 - **Multi-region:** not applicable because this is a single-region exercise. It would be a second stack in another region behind DNS failover.
 
-## Confirm at first apply
+## Verified at first apply
 
-- Regional NAT metrics are published under `AWS/NATGateway` with the `NatGatewayId` dimension (used by the NAT alarm and dashboard).
-- The NAT interface-type filter in `validate.sh`.
-- The Fargate ENI description match (`*ecs*`) in `validate.sh`.
-- Regional NAT auto mode may take minutes to expand into an AZ when the first workloads appear.
-- A second plan shows no diff on the regional NAT (`availability_zone_address` read-back).
-- The pinned `terraform_version` (1.17.2) downloads and installs on the dev box.
-- The dev box root volume shows the project tags (set explicitly from the provider's default tags).
-- Container Insights writes to the managed `/aws/ecs/containerinsights/<cluster>/performance` log group, and Fargate tasks carry the propagated service tags.
+Flagged before the first real run (2026-11-23); outcome of each:
+
+- **NAT interface-type filter** in `validate.sh`: works (the NAT ENIs are excluded and the check passes).
+- **Fargate ENI description match** (`*ecs*`) in `validate.sh`: works (task ENIs are found and checked).
+- **Regional NAT** with `availability_mode = "regional"`: created first time and provisioned a public IP in each of the two AZs in use.
+- **Second plan on the regional NAT**: `No changes.` (exit 0); the `availability_zone_address` read-back does not diff.
+- **Pinned `terraform_version`** (1.17.2): downloads and installs on the dev box from the release zip.
+- **Root volume tags**: the root (30 GB) and home (20 GB) volumes both carry the project tags.
+- **Container Insights and task tags**: the log group is the Terraform-managed one (14-day retention), and Fargate tasks carry the propagated tags.
+- **First build in a new VPC**: failed once on the ECR login and recovered by the trigger's restart; fixed by row 21.
+
+### Still unverified
+
+- NAT metrics under `AWS/NATGateway` with the `NatGatewayId` dimension: the alarm exists and is OK, but it treats missing data as not breaching, so OK does not prove the metric is published.
+- An interactive session with the custom session document appearing in the session log group (only `send-command` was used).
+- VS Code Remote-SSH over SSM.
+- The `alert_email` subscription and delivery.
+- Behaviour under load (auto-scaling events).
 
 ## Cost
 

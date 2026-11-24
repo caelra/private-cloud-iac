@@ -31,10 +31,10 @@ export AWS_REGION=$(terraform -chdir=envs/dev output -raw region)
 ID=$(terraform -chdir=envs/dev output -raw dev_instance_id)
 $(terraform -chdir=envs/dev output -raw ssm_command)
 #   echo "persisted $(date)" > ~/proof.txt
-#   pip3 install --user httpie && ~/.local/bin/http --version
+#   pip3 install --user ruff && ~/.local/bin/ruff --version
 aws ec2 stop-instances --instance-ids "$ID" && aws ec2 wait instance-stopped --instance-ids "$ID"
 aws ec2 start-instances --instance-ids "$ID" && aws ec2 wait instance-status-ok --instance-ids "$ID"
-# reconnect: cat ~/proof.txt && ~/.local/bin/http --version   -> both still there
+# reconnect: cat ~/proof.txt && ~/.local/bin/ruff --version   -> both still there
 ```
 
 Then prove the volume outlives the instance:
@@ -94,4 +94,25 @@ The module tests assert that subnets never assign public IPs, tier CIDRs do not 
 
 ## Live results
 
-Recorded after the first apply.
+First real run, 2026-11-23, AWS us-east-1 in the review account, Terraform 1.17.2, AWS provider 6.73.0.
+
+| What was run | Result | Time |
+|---|---|---|
+| `terraform -chdir=bootstrap apply` | 5 resources created | |
+| `terraform -chdir=envs/dev apply` from zero | 83 resources created, succeeded on the first attempt (see the build note below) | 7 min 30 s |
+| `scripts/validate.sh` | 12/12 PASS: no instance public IP; no ENI public IP except the NAT; isolated route table has no default route; dev SG has no inbound rules; dev box Online in SSM; egress via the NAT public IP; `/home` separate volume; tooling bootstrapped; ALB internal; app 200 from inside; not reachable from outside; tasks have no public IP | |
+| Second `terraform -chdir=envs/dev plan -detailed-exitcode` | `No changes.`, exit 0, including the regional NAT gateway | |
+| Regional NAT gateway | Created with `availability_mode = "regional"`; a public IP in each of the two AZs. AWS attaches its own route table to the gateway (no subnet associations) with `0.0.0.0/0` → internet gateway; no subnet route table points at the internet gateway | |
+| Dev box | cloud-init finished; Terraform 1.17.2 (pinned zip), Docker 25, git, node 18, aws-cli, tmux, jq present; root (30 GB) and home (20 GB) volumes tagged | |
+| [R3 persistence](#r3-persistence-proof): stop/start | `~/proof.txt` and the `pip --user` package (`ruff`) still there | |
+| R3 persistence: `-replace` of the instance | Both still there; the home volume detached and reattached cleanly | 95 s |
+| [Redeploy](#r4-redeploy-and-failed-build-safety): comment appended to `app/Dockerfile` | New image tag built and rolled out | 203 s |
+| Redeploy: revert | No new build (trigger returned `SKIPPED`, tag already in ECR); rollout back to the committed tag | 190 s |
+| Failed build: non-existent base image | Apply fails at `aws_lambda_invocation.build` with `CodeBuild build … ended with status FAILED`; the service kept returning 200 on the previous task definition | 73 s |
+| Tags, scaling, monitoring | ECS tasks carry the project tags; scaling target min 2 / max 4; Container Insights log group is the Terraform-managed one (14-day retention); all 8 alarms created and OK, except `build-failed`, which went to ALARM after the failed build as intended | |
+
+Build note: on this first apply the first CodeBuild build failed in PRE_BUILD because `docker login` to ECR timed out in the minutes-old VPC. The trigger's restart-once started a second build, which succeeded, so the apply passed. The build now also waits for the VPC endpoints and retries the login (see [decision 21](decisions.md#decisions)).
+
+Clean-room rebuild after the build fix: PENDING
+
+Not verified live: an interactive session with the custom session document appearing in the session log, VS Code Remote-SSH, the alert e-mail subscription, and behaviour under load (see [Still unverified](decisions.md#still-unverified)).

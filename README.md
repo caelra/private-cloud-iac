@@ -23,7 +23,7 @@ Developers reach the dev box with SSM Session Manager: IAM authentication, no in
 
 ### How the app is built and deployed (Requirement 4)
 
-Terraform zips `app/` (a Dockerfile on the sample `hello-app` image) and uploads it to S3, then invokes a Lambda that runs a CodeBuild build in the egress tier and waits for it. CodeBuild pushes the image to a private ECR repository with an immutable tag taken from the source hash. An ECS Fargate service in the isolated tier, behind an internal ALB, pulls that image through VPC endpoints, and the apply waits for the service to reach steady state. Fargate over EKS: one container does not justify a control plane and nodes, and the private result is the same.
+Terraform zips `app/` (a Dockerfile on the sample `hello-app` image) and uploads it to S3, then invokes a Lambda that runs a CodeBuild build in the egress tier and waits for it; the build starts only after the NAT route and the VPC endpoints exist, and retries the registry login. CodeBuild pushes the image to a private ECR repository with an immutable tag taken from the source hash. An ECS Fargate service in the isolated tier, behind an internal ALB, pulls that image through VPC endpoints, and the apply waits for the service to reach steady state. Fargate over EKS: one container does not justify a control plane and nodes, and the private result is the same.
 
 Every design choice, with alternatives and tradeoffs: [docs/decisions.md](docs/decisions.md).
 
@@ -58,9 +58,9 @@ terraform -chdir=envs/dev init \
 terraform -chdir=envs/dev apply
 ```
 
-The bootstrap stack keeps local state on purpose: it creates the bucket that remote state needs, so it cannot store its state there. Every variable has a default; see `envs/dev/terraform.tfvars.example`. Apply time is to be measured at first apply; the slow steps are the NAT gateway, the image build and the ECS service reaching steady state.
+The bootstrap stack keeps local state on purpose: it creates the bucket that remote state needs, so it cannot store its state there. Every variable has a default; see `envs/dev/terraform.tfvars.example`. Apply takes 7–8 minutes from zero; the slow steps are the NAT gateway, the image build and the ECS service reaching steady state.
 
-**Status:** not applied yet. The code is validated and tested offline with mocked providers; the items to check on the first real run are in [docs/decisions.md](docs/decisions.md#confirm-at-first-apply).
+**Verified:** applied from zero in the review account (us-east-1): 83 resources in 7 min 30 s, `scripts/validate.sh` 12/12 PASS, second plan clean. Details: [docs/validation.md](docs/validation.md#live-results).
 
 ## 5. Connect to the dev box
 
@@ -91,7 +91,7 @@ Treated as part of the solution: `modules/monitoring` is created by the same app
 
 | Exception | Requirement | Why | Production fix |
 |---|---|---|---|
-| An internet gateway exists, used only by the NAT | R2 | AWS NAT gateways require one | None needed; no route table points at it |
+| An internet gateway exists, used only by the NAT | R2 | AWS NAT gateways require one | None needed; no subnet route table points at it, the only route to it is in the NAT gateway's own AWS-managed route table |
 | One-time bootstrap stack with local state | R1 | It creates the state bucket | Org-level state bucket from a platform stack |
 | HTTP, not HTTPS, inside the VPC | R4 | No certificate provisioned | HTTPS listener with AWS Private CA |
 | Dev box SSM traffic leaves via the NAT | R2, R3 | Saves about $22/month per AZ (about $44 here) of endpoints | `ssm`, `ssmmessages`, `ec2messages` endpoints |
