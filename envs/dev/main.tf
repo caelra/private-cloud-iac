@@ -55,8 +55,10 @@ module "app_build" {
   subnet_ids = module.network.egress_subnet_ids
   source_dir = "${path.root}/../../app"
 
-  # The build pulls its base image through the NAT.
-  egress_ready = module.network.nat_gateway_id
+  # The build pulls its base image through the NAT and pushes to ECR through
+  # the VPC endpoints.
+  egress_ready    = module.network.nat_gateway_id
+  endpoints_ready = module.endpoints.ready
 }
 
 module "app_service" {

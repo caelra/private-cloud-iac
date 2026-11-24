@@ -17,6 +17,11 @@ variable "egress_ready" {
   type        = string
 }
 
+variable "endpoints_ready" {
+  description = "Any value that is only known once the VPC endpoints exist (the endpoints module's `ready` output). The build logs in and pushes to ECR through them."
+  type        = string
+}
+
 variable "source_dir" {
   description = "Directory containing the Dockerfile."
   type        = string

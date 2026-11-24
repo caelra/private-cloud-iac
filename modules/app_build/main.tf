@@ -301,6 +301,12 @@ resource "terraform_data" "egress_ready" {
   input = var.egress_ready
 }
 
+# Same idea for the VPC endpoints: with private DNS on, ECR resolves to them
+# from every subnet, so the build must not start while they are being created.
+resource "terraform_data" "endpoints_ready" {
+  input = var.endpoints_ready
+}
+
 resource "aws_lambda_invocation" "build" {
   function_name = aws_lambda_function.trigger.function_name
 
@@ -314,5 +320,5 @@ resource "aws_lambda_invocation" "build" {
     image_tag = local.image_tag
   }
 
-  depends_on = [aws_s3_object.source, terraform_data.egress_ready]
+  depends_on = [aws_s3_object.source, terraform_data.egress_ready, terraform_data.endpoints_ready]
 }

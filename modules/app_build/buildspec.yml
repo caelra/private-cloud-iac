@@ -3,7 +3,16 @@ version: 0.2
 phases:
   pre_build:
     commands:
-      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      # In a VPC that is only minutes old the registry endpoint can time out on
+      # the first connection, so retry the login before failing the build.
+      - |
+        for attempt in 1 2 3 4; do
+          aws ecr get-login-password --region "$AWS_DEFAULT_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY" && break
+          if [ "$attempt" = 4 ]; then echo "ECR login failed after 4 attempts"; exit 1; fi
+          echo "ECR login attempt $attempt failed; retrying in 15s"
+          sleep 15
+        done
   build:
     commands:
       - docker build --platform linux/amd64 -t "$REPO_URI:$IMAGE_TAG" .
