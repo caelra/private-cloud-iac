@@ -91,12 +91,13 @@ Monitoring and alerting is part of the solution, not an add-on: `modules/monitor
 - **Where alerts go:** one SNS topic per environment. Subscribers attach to the topic (e-mail today through `alert_email`; chat or an on-call tool later) without touching the alarms.
 - **What to keep:** logs for every component, with retention set in code, plus VPC flow logs and SSM session logs for security review.
 - **How it is managed:** thresholds, retention and the alert address are variables; nothing is configured by hand in the console.
+- **What was removed:** Container Insights was tried and turned off. After `terraform destroy`, AWS re-created its log group minutes later, outside Terraform, which would have broken the next apply. A clean teardown and re-apply matters more here than task-level metrics; the alarms use ALB and `AWS/ECS` service metrics, which need no Container Insights.
 
 ### What is built
 
-- **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, running tasks below the minimum (2), ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them. Target tracking also creates two AWS-managed `TargetTracking-*` alarms, which are not sent to SNS.
+- **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, healthy targets below the minimum (2), ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them. Target tracking also creates two AWS-managed `TargetTracking-*` alarms, which are not sent to SNS.
 - **Dashboard** named by the `dashboard_name` output: requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
-- **Logs:** app, build, trigger Lambda and VPC flow logs (all traffic) in CloudWatch with 14-day retention by default, SSM session logs with 30 days, and Container Insights on the ECS cluster. Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
+- **Logs:** app, build, trigger Lambda and VPC flow logs (all traffic) in CloudWatch with 14-day retention by default, and SSM session logs with 30 days. Container Insights is off (see the approach above). Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
 
 ### At larger scale
 

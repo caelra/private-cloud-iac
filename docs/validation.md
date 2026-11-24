@@ -109,10 +109,20 @@ First real run, 2026-11-23, AWS us-east-1 in the review account, Terraform 1.17.
 | [Redeploy](#r4-redeploy-and-failed-build-safety): comment appended to `app/Dockerfile` | New image tag built and rolled out | 203 s |
 | Redeploy: revert | No new build (trigger returned `SKIPPED`, tag already in ECR); rollout back to the committed tag | 190 s |
 | Failed build: non-existent base image | Apply fails at `aws_lambda_invocation.build` with `CodeBuild build … ended with status FAILED`; the service kept returning 200 on the previous task definition | 73 s |
-| Tags, scaling, monitoring | ECS tasks carry the project tags; scaling target min 2 / max 4; Container Insights log group is the Terraform-managed one (14-day retention); all 8 alarms created and OK, except `build-failed`, which went to ALARM after the failed build as intended | |
+| Tags, scaling, monitoring | ECS tasks carry the project tags; scaling target min 2 / max 4; all 8 alarms created and OK, except `build-failed`, which went to ALARM after the failed build as intended | |
 
 Build note: on this first apply the first CodeBuild build failed in PRE_BUILD because `docker login` to ECR timed out in the minutes-old VPC. The trigger's restart-once started a second build, which succeeded, so the apply passed. The build now also waits for the VPC endpoints and retries the login (see [decision 21](decisions.md#decisions)).
 
-Clean-room rebuild after the build fix: PENDING
+Destroy and clean-room rebuild, same day, account, region and versions:
+
+| What was run | Result | Time |
+|---|---|---|
+| `terraform -chdir=envs/dev destroy` of the first environment | 84 resources destroyed. Finding: about two minutes later AWS re-created the Container Insights log group (`/aws/ecs/containerinsights/<name>/performance`, untagged, 1-day retention), which would have made the next apply fail with "already exists". Fixed by turning Container Insights off ([decision 22](decisions.md#decisions)); the minimum-capacity alarm now uses ALB `HealthyHostCount` | 5 min 10 s |
+| `terraform -chdir=envs/dev apply` from zero, fresh clone, both fixes in | 83 resources, succeeded first try; the first CodeBuild build succeeded (no login failure; one run, so this shows the fix does no harm, not the root cause); dev box bootstrap marker present when the apply returned | 7 min 6 s |
+| `scripts/validate.sh` | 12/12 PASS | |
+| Second plan | `No changes.`, exit 0 | |
+| Log groups | build-trigger Lambda, app, codebuild, ssm-sessions, vpc-flow-logs; no Container Insights group | |
+
+The environment was destroyed after testing; re-apply it before a demo.
 
 Not verified live: an interactive session with the custom session document appearing in the session log, VS Code Remote-SSH, the alert e-mail subscription, and behaviour under load (see [Still unverified](decisions.md#still-unverified)).

@@ -60,7 +60,7 @@ terraform -chdir=envs/dev apply
 
 The bootstrap stack keeps local state on purpose: it creates the bucket that remote state needs, so it cannot store its state there. Every variable has a default; see `envs/dev/terraform.tfvars.example`. Apply takes 7–8 minutes from zero; the slow steps are the NAT gateway, the image build and the ECS service reaching steady state.
 
-**Verified:** applied from zero in the review account (us-east-1): 83 resources in 7 min 30 s, `scripts/validate.sh` 12/12 PASS, second plan clean. Details: [docs/validation.md](docs/validation.md#live-results).
+**Verified:** applied from zero twice in the review account (us-east-1), the second time from a fresh clone: 83 resources in 7–8 minutes, `scripts/validate.sh` 12/12 PASS, second plan clean. Details: [docs/validation.md](docs/validation.md#live-results).
 
 ## 5. Connect to the dev box
 
@@ -85,7 +85,7 @@ Manual proofs (persistence, redeploy, failed build) and the offline test suite: 
 
 ## 7. Monitoring and alerting
 
-Treated as part of the solution: `modules/monitoring` is created by the same apply. Eight CloudWatch alarms (app symptoms first, then NAT, build and dev box) notify an SNS topic; set `alert_email` to receive them. One dashboard, Container Insights, VPC flow logs and SSM session logs cover the rest. The approach (where it is defined, what to alert on, where alerts go, how it is managed) and how it would change at scale: [docs/architecture.md](docs/architecture.md#monitoring).
+Treated as part of the solution: `modules/monitoring` is created by the same apply. Eight CloudWatch alarms (app symptoms first, then NAT, build and dev box) notify an SNS topic; set `alert_email` to receive them. One dashboard, VPC flow logs and SSM session logs cover the rest. The approach (where it is defined, what to alert on, where alerts go, how it is managed) and how it would change at scale: [docs/architecture.md](docs/architecture.md#monitoring).
 
 ## 8. Where the design bends a requirement
 
