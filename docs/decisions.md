@@ -12,7 +12,7 @@ Each significant choice, the alternative rejected, and what it costs.
 | 4 | SSM Session Manager for human access | IAM auth, no inbound ports, logging, Remote-SSH | Bastion (public IP); Client VPN; EC2 Instance Connect Endpoint | Needs the CLI and Session Manager plugin locally |
 | 5 | Dev box reaches SSM through the NAT | Saves about $44/month of endpoints | `ssm`, `ssmmessages`, `ec2messages` endpoints | SSM traffic leaves via the NAT |
 | 6 | EC2 `t4g.small` with a separate encrypted `/home` volume, tooling by cloud-init | `/home` outlives the instance | Cloud9; WorkSpaces; devcontainer on Fargate | `/home` does not survive `terraform destroy` |
-| 7 | ECS Fargate | No nodes to manage | EKS; App Runner; Lambda | Costs more per vCPU than EC2 |
+| 7 | ECS Fargate | No nodes or control plane; one reliable apply ([README](../README.md#how-the-app-is-built-and-deployed-requirement-4)) | EKS; App Runner; Lambda | Costs more per vCPU than EC2 |
 | 8 | App in the isolated tier | Proves a tier with no internet route works | App in the egress tier | Needs VPC endpoints for pull and logs |
 | 9 | Internal ALB on :80 (VPC CIDR only); tasks accept :8080 from the ALB only | Health-checked endpoint with metrics | Service Connect / Cloud Map | HTTP inside the VPC |
 | 10 | CodeBuild in the egress subnets builds a zip of `app/` | No local Docker, no arm64/amd64 mismatch | Local Docker provider | More moving parts |
