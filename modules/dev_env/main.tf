@@ -4,12 +4,11 @@ data "aws_region" "current" {}
 
 data "aws_default_tags" "current" {}
 
-# Latest Amazon Linux 2023 arm64 AMI, published by AWS as a public parameter.
 data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
 }
 
-# --- Access: no inbound rules at all. SSM agent dials out. -------------------
+# No inbound rules at all: the SSM agent dials out.
 
 resource "aws_security_group" "dev" {
   name        = "${var.name}-dev"
@@ -109,8 +108,6 @@ resource "aws_ssm_document" "session" {
   })
 }
 
-# --- Persistent home volume ---------------------------------------------------
-
 resource "aws_ebs_volume" "home" {
   availability_zone = var.availability_zone
   size              = var.home_volume_size_gb
@@ -119,8 +116,6 @@ resource "aws_ebs_volume" "home" {
 
   tags = { Name = "${var.name}-dev-home" }
 }
-
-# --- Instance -----------------------------------------------------------------
 
 # cloud-init installs packages from the internet; referencing the NAT id here lets
 # the instance wait until the route exists without a module-level depends_on.

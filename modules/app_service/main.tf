@@ -2,8 +2,6 @@ data "aws_partition" "current" {}
 
 data "aws_region" "current" {}
 
-# --- Security groups ------------------------------------------------------------
-
 resource "aws_security_group" "alb" {
   name        = "${var.name}-app-alb"
   description = "Internal ALB: HTTP from inside the VPC only"
@@ -58,8 +56,6 @@ resource "aws_vpc_security_group_egress_rule" "tasks_https" {
   ip_protocol       = "tcp"
 }
 
-# --- Load balancer ----------------------------------------------------------------
-
 resource "aws_lb" "app" {
   name                       = "${var.name}-app"
   internal                   = true
@@ -98,8 +94,6 @@ resource "aws_lb_listener" "http" {
     target_group_arn = aws_lb_target_group.app.arn
   }
 }
-
-# --- ECS ----------------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "app" {
   name              = "/${var.name}/app"
@@ -196,7 +190,6 @@ resource "aws_ecs_service" "app" {
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
 
-  # Tasks carry the service's tags (the provider default_tags), plus ECS-managed ones.
   propagate_tags          = "SERVICE"
   enable_ecs_managed_tags = true
 
@@ -233,7 +226,6 @@ resource "aws_ecs_service" "app" {
   ]
 }
 
-# --- Auto-scaling -----------------------------------------------------------------
 # The tier is stateless, so tasks are interchangeable and can scale horizontally.
 # The minimum is desired_count (two tasks, one per AZ) for redundancy.
 

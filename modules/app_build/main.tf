@@ -15,8 +15,6 @@ locals {
   registry   = split("/", aws_ecr_repository.app.repository_url)[0]
 }
 
-# --- Registry -----------------------------------------------------------------
-
 resource "aws_ecr_repository" "app" {
   name                 = "${var.name}-app"
   image_tag_mutability = "IMMUTABLE"
@@ -44,8 +42,6 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
-# --- Build source ---------------------------------------------------------------
-
 data "archive_file" "source" {
   type        = "zip"
   source_dir  = var.source_dir
@@ -71,8 +67,6 @@ resource "aws_s3_object" "source" {
   source = data.archive_file.source.output_path
   etag   = data.archive_file.source.output_md5
 }
-
-# --- CodeBuild --------------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "build" {
   name              = "/${var.name}/codebuild"
@@ -231,7 +225,7 @@ resource "aws_codebuild_project" "app" {
   depends_on = [aws_iam_role_policy.build]
 }
 
-# --- Trigger: Terraform invokes this Lambda, which runs the build and waits ----
+# Terraform invokes this Lambda, which runs the build and waits for it.
 
 data "archive_file" "trigger" {
   type        = "zip"

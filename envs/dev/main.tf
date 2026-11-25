@@ -2,8 +2,7 @@ locals {
   name = "${var.project}-${var.environment}"
 }
 
-# Everything tagged Project=<project> shows up in one console view, including
-# the shared state bucket from bootstrap/.
+# One console view of everything tagged Project=<project>, including the state bucket.
 resource "aws_resourcegroups_group" "project" {
   name = local.name
 

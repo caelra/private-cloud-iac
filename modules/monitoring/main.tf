@@ -23,7 +23,7 @@ locals {
     ServiceName = var.ecs_service_name
   }
 
-  # One entry per alarm. Symptom alarms (users affected) come first.
+  # Symptom alarms (users affected) come first.
   alarms = {
     app-unhealthy-targets = {
       description = "The ALB sees unhealthy app targets"

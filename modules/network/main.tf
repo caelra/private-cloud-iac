@@ -41,7 +41,7 @@ resource "aws_nat_gateway" "this" {
   depends_on = [aws_internet_gateway.this]
 }
 
-# --- Egress tier: outbound-only internet through the NAT -------------------
+# Egress tier: outbound-only internet through the NAT.
 
 resource "aws_subnet" "egress" {
   count = var.az_count
@@ -73,7 +73,7 @@ resource "aws_route_table_association" "egress" {
   route_table_id = aws_route_table.egress.id
 }
 
-# --- Isolated tier: local route only, no path to the internet ---------------
+# Isolated tier: local route only, no path to the internet.
 
 resource "aws_subnet" "isolated" {
   count = var.az_count
@@ -98,8 +98,6 @@ resource "aws_route_table_association" "isolated" {
   subnet_id      = aws_subnet.isolated[count.index].id
   route_table_id = aws_route_table.isolated.id
 }
-
-# --- Flow logs ---------------------------------------------------------------
 
 resource "aws_cloudwatch_log_group" "flow" {
   name              = "/${var.name}/vpc-flow-logs"
