@@ -61,12 +61,7 @@ flowchart TB
   alarms -- "notify" --> sns
 ```
 
-The developer laptop runs Terraform and the AWS CLI; it never opens a
-connection into the VPC. The internet gateway is attached to the VPC only
-because a NAT gateway requires one; only the NAT uses it, and no subnet route
-table points at it. The regional NAT gateway gets its own AWS-managed route
-table (associated with the gateway, not with any subnet) holding
-`0.0.0.0/0 → internet gateway`; that is the only route to it.
+The developer laptop runs Terraform and the AWS CLI; it never opens a connection into the VPC. The internet gateway exists only because a NAT gateway requires one, and the only route to it is in the NAT gateway's own AWS-managed route table, not in any subnet's.
 
 ## How each private resource is reached
 
@@ -82,38 +77,39 @@ table (associated with the gateway, not with any subnet) holding
 
 ## Monitoring
 
-Monitoring and alerting is part of the solution, not an add-on: `modules/monitoring` is created by the same `terraform apply` as the resources it watches.
+Monitoring and alerting is part of the solution: `modules/monitoring` is created by the same `terraform apply` as the resources it watches.
 
 ### Approach
 
-- **Where it is defined:** in Terraform, in the same stack as the infrastructure. An environment never exists without its alarms, and a threshold change is reviewed and tested like any other change.
-- **What to alert on:** symptoms first (the app is unhealthy or returning errors), then causes (CPU, memory, NAT, build, dev box). An alarm exists only if someone should act on it.
-- **Where alerts go:** one SNS topic per environment. Subscribers attach to the topic (e-mail today through `alert_email`; chat or an on-call tool later) without touching the alarms.
-- **What to keep:** logs for every component, with retention set in code, plus VPC flow logs and SSM session logs for security review.
-- **How it is managed:** thresholds, retention and the alert address are variables; nothing is configured by hand in the console.
-- **What was removed:** Container Insights was tried and turned off. After `terraform destroy`, AWS re-created its log group minutes later, outside Terraform, which would have broken the next apply. A clean teardown and re-apply matters more here than task-level metrics; the alarms use ALB and `AWS/ECS` service metrics, which need no Container Insights.
+- **Where it is defined:** in Terraform, in the same stack, so an environment never exists without its alarms.
+- **What to alert on:** symptoms first (app unhealthy or returning errors), then causes (CPU, memory, NAT, build, dev box); only what someone should act on.
+- **Where alerts go:** one SNS topic per environment; subscribers (e-mail via `alert_email` today, chat or on-call later) attach without touching the alarms.
+- **What is kept:** logs for every component with retention set in code, plus VPC flow logs and SSM session logs for security review.
+- **How it is managed:** thresholds, retention and the alert address are variables; nothing is configured by hand.
 
 ### What is built
 
-- **Alarms (8)** to the `<name>-alerts` SNS topic, symptoms first: unhealthy ALB targets, target 5xx, healthy targets below the minimum (2), ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed CodeBuild builds. Set `alert_email` to receive them. Target tracking also creates two AWS-managed `TargetTracking-*` alarms, which are not sent to SNS.
-- **Dashboard** named by the `dashboard_name` output: requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
-- **Logs:** app, build, trigger Lambda and VPC flow logs (all traffic) in CloudWatch with 14-day retention by default, and SSM session logs with 30 days. Container Insights is off (see the approach above). Only sessions started with the custom session document (what `ssm_command` uses) are logged to the session log group.
+- **8 alarms** to the `<name>-alerts` SNS topic: unhealthy targets, target 5xx, healthy targets below 2, ECS CPU and memory above 80%, dev box status check, NAT port-allocation errors, failed builds.
+- **Dashboard** (`dashboard_name` output): requests and errors, p95 latency, CPU and memory, NAT traffic, alarm state.
+- **Logs:** app, build, trigger Lambda and VPC flow logs with 14-day retention; SSM session logs with 30 days.
+
+Container Insights is off because AWS re-creates its log group after a destroy, which breaks the next apply.
 
 ### At larger scale
 
-At larger scale this would not be per-environment CloudWatch alarms written by hand. Metrics and alarms would be generated from shared module defaults per service and fed to one central account (CloudWatch cross-account observability, or Prometheus/Grafana or Datadog). Alerts would route by severity and ownership through an on-call tool rather than one SNS topic, and alarms would be tied to SLOs (error rate and latency burn) instead of fixed thresholds. Flow logs and session logs would go to a central log account with longer retention.
+Alarms would come from shared module defaults per service and feed one central account (CloudWatch cross-account observability, Prometheus/Grafana or Datadog). Alerts would route by severity and ownership through an on-call tool and be tied to SLOs rather than fixed thresholds. Flow and session logs would go to a central log account with longer retention.
 
 ## Scaling
 
-The app tier is stateless, so the ECS service auto-scales between 2 and 4 tasks to hold average CPU near 60%; the minimum of two keeps one task per AZ.
+The stateless ECS service auto-scales between 2 and 4 tasks to hold average CPU near 60%; the minimum of two keeps one task per AZ.
 
 ## Modules
 
-- `network`: VPC, egress and isolated subnets in two AZs, regional NAT gateway and its internet gateway, route tables, flow logs.
-- `endpoints`: the `ecr.api`, `ecr.dkr` and `logs` interface endpoints in the isolated subnets (security group allows HTTPS from the VPC) and the S3 gateway endpoint on both route tables.
-- `dev_env`: the private dev EC2 (AL2023 arm64, IMDSv2, no inbound rules), its encrypted `/home` volume, IAM role, and the logged SSM session document.
-- `app_build`: private ECR repository, S3 source bucket, CodeBuild project and the trigger Lambda that runs the build during apply, once the NAT route and the VPC endpoints exist (`egress_ready`, `endpoints_ready`); the buildspec retries the registry login.
-- `app_service`: ECS cluster, Fargate service and task definition, internal ALB, listener, target group, security groups, and CPU target-tracking auto-scaling (2 to 4 tasks).
-- `monitoring`: SNS alerts topic, the eight CloudWatch alarms and the dashboard.
-- `bootstrap/`: one-time stack with local state that creates the versioned, encrypted state bucket.
-- `envs/dev/`: root stack that wires the modules together, configures the S3 backend and provider default tags, and holds the stack test.
+- `network`: VPC, both tiers in two AZs, regional NAT and internet gateway, route tables, flow logs.
+- `endpoints`: `ecr.api`, `ecr.dkr`, `logs` interface endpoints and the S3 gateway endpoint.
+- `dev_env`: private dev EC2 (AL2023 arm64, IMDSv2), encrypted `/home` volume, IAM role, logged SSM session document.
+- `app_build`: private ECR, source bucket, CodeBuild project and the trigger Lambda that builds during apply.
+- `app_service`: ECS cluster and Fargate service, internal ALB, security groups, auto-scaling.
+- `monitoring`: SNS topic, alarms, dashboard.
+- `bootstrap/`: one-time stack with local state that creates the state bucket.
+- `envs/dev/`: root stack that wires the modules, S3 backend, default tags and the stack test.

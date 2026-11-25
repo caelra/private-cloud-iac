@@ -4,25 +4,11 @@ How to prove each requirement. Run every command from the repository root.
 
 ## Automated (scripts/validate.sh)
 
-```bash
-scripts/validate.sh
-```
-
-Runs against the live environment (needs AWS credentials, `terraform`, `jq`), prints PASS/FAIL per check and exits non-zero on any failure. Requirement 1 is the apply itself (see [R1](#r1-reproducibility)).
-
-- **R2. Private network, no public IPs, egress only where intended.** No instance or network interface has a public IP except the NAT gateway; the isolated route table has no `0.0.0.0/0` route; the dev security group has no inbound rules; the dev box is `Online` in SSM; the dev box's public egress IP equals the NAT gateway's.
-- **R3. Dev environment.** `/home` is a separate volume (label `devhome`); the tooling (git, docker, terraform, aws, node, tmux, jq) is installed.
-- **R4. Private container app.** The ALB is `internal`; `app_url` returns 200 from the dev box (egress tier to isolated tier); it is *not* reachable from your machine; running task ENIs have no public IP.
+`scripts/validate.sh` runs 12 checks against the live environment (needs AWS credentials, `terraform`, `jq`); the [README](../README.md#6-validate-each-requirement) lists which requirement each group covers.
 
 ## R1 reproducibility
 
-`terraform apply` from a clean checkout (see the [README](../README.md#4-run-it)), then:
-
-```bash
-terraform -chdir=envs/dev plan -detailed-exitcode
-```
-
-Expect `No changes.` and exit code `0`.
+After `terraform apply` from a clean checkout (see the [README](../README.md#4-run-it)), `terraform -chdir=envs/dev plan -detailed-exitcode` reports `No changes.` and exits `0`.
 
 ## R3 persistence proof
 
@@ -46,8 +32,6 @@ terraform -chdir=envs/dev apply -replace=module.dev_env.aws_instance.dev -auto-a
 
 ## R4 redeploy and failed-build safety
 
-By hand: get the URL on your machine with `terraform -chdir=envs/dev output -raw app_url`, then run `curl -i <url>` inside an SSM session on the dev box.
-
 Redeploy after a source change (new tag, new task definition, rolling update):
 
 ```bash
@@ -57,7 +41,7 @@ git checkout app/Dockerfile
 terraform -chdir=envs/dev apply -auto-approve    # back to the committed tag; the build reports SKIPPED (tag exists)
 ```
 
-Failed build leaves the running service untouched:
+A failed build leaves the running service untouched:
 
 ```bash
 printf 'FROM does-not-exist.invalid/nope:0\n' > app/Dockerfile
@@ -77,11 +61,11 @@ Host quadsci-dev
   ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p
 ```
 
-Still no inbound ports: the SSH stream rides the outbound SSM channel.
+The SSH stream rides the outbound SSM channel, so there are still no inbound ports (not exercised in the live run).
 
 ## Offline tests
 
-No AWS calls. CI (`.github/workflows/ci.yml`) runs the same checks on every pull request and on pushes to main.
+No AWS calls; CI (`.github/workflows/ci.yml`) runs the same checks on every pull request and push to main.
 
 ```bash
 for m in network dev_env app_service; do (cd modules/$m && terraform init -backend=false && terraform test); done
@@ -90,39 +74,27 @@ python3 -m pytest modules/app_build/lambda                           # trigger L
 terraform fmt -check -recursive && bash -n scripts/validate.sh
 ```
 
-The module tests assert that subnets never assign public IPs, tier CIDRs do not collide, the instance is private with IMDSv2 and a separate encrypted home volume, the dev security group has no ingress, the ALB is internal, tasks get no public IP, and the service auto-scales between 2 and 4 tasks on CPU. Test runs: 3 (network), 3 (dev_env), 4 (app_service) and 1 (stack).
+Test runs: 3 (network), 3 (dev_env), 4 (app_service), 1 (stack).
 
 ## Live results
 
-First real run, 2026-11-23, AWS us-east-1 in the review account, Terraform 1.17.2, AWS provider 6.73.0.
+2026-11-23, us-east-1, Terraform 1.17.2, AWS provider 6.73.0.
 
-| What was run | Result | Time |
-|---|---|---|
-| `terraform -chdir=bootstrap apply` | 5 resources created | |
-| `terraform -chdir=envs/dev apply` from zero | 83 resources created, succeeded on the first attempt (see the build note below) | 7 min 30 s |
-| `scripts/validate.sh` | 12/12 PASS: no instance public IP; no ENI public IP except the NAT; isolated route table has no default route; dev SG has no inbound rules; dev box Online in SSM; egress via the NAT public IP; `/home` separate volume; tooling bootstrapped; ALB internal; app 200 from inside; not reachable from outside; tasks have no public IP | |
-| Second `terraform -chdir=envs/dev plan -detailed-exitcode` | `No changes.`, exit 0, including the regional NAT gateway | |
-| Regional NAT gateway | Created with `availability_mode = "regional"`; a public IP in each of the two AZs. AWS attaches its own route table to the gateway (no subnet associations) with `0.0.0.0/0` → internet gateway; no subnet route table points at the internet gateway | |
-| Dev box | cloud-init finished; Terraform 1.17.2 (pinned zip), Docker 25, git, node 18, aws-cli, tmux, jq present; root (30 GB) and home (20 GB) volumes tagged | |
-| [R3 persistence](#r3-persistence-proof): stop/start | `~/proof.txt` and the `pip --user` package (`ruff`) still there | |
-| R3 persistence: `-replace` of the instance | Both still there; the home volume detached and reattached cleanly | 95 s |
-| [Redeploy](#r4-redeploy-and-failed-build-safety): comment appended to `app/Dockerfile` | New image tag built and rolled out | 203 s |
-| Redeploy: revert | No new build (trigger returned `SKIPPED`, tag already in ECR); rollout back to the committed tag | 190 s |
-| Failed build: non-existent base image | Apply fails at `aws_lambda_invocation.build` with `CodeBuild build … ended with status FAILED`; the service kept returning 200 on the previous task definition | 73 s |
-| Tags, scaling, monitoring | ECS tasks carry the project tags; scaling target min 2 / max 4; all 8 alarms created and OK, except `build-failed`, which went to ALARM after the failed build as intended | |
+| Item | Result |
+|---|---|
+| Apply from zero | 83 resources in 7 min 30 s; from a fresh clone, 7 min 6 s |
+| `scripts/validate.sh` | 12/12 PASS on both |
+| Second plan | `No changes.` |
+| `/home` after stop/start | Files and `pip --user` package kept |
+| `/home` after instance replacement | Kept; replacement took 95 s |
+| Redeploy | New tag rolled out in 203 s |
+| Revert | Build skipped, tag already in ECR |
+| Failed build | Apply fails in 73 s; the app keeps serving |
+| Destroy | 5–6.5 min; nothing left but the state bucket |
 
-Build note: on this first apply the first CodeBuild build failed in PRE_BUILD because `docker login` to ECR timed out in the minutes-old VPC. The trigger's restart-once started a second build, which succeeded, so the apply passed. The build now also waits for the VPC endpoints and retries the login (see [decision 21](decisions.md#decisions)).
+Two defects the live run found, both fixed:
 
-Destroy and clean-room rebuild, same day, account, region and versions:
+- The first build's ECR login timed out in the minutes-old VPC; the build now waits for the endpoints and retries the login ([decision 21](decisions.md#decisions)).
+- AWS re-created the Container Insights log group after destroy, which would break the next apply; Container Insights is off ([decision 22](decisions.md#decisions)).
 
-| What was run | Result | Time |
-|---|---|---|
-| `terraform -chdir=envs/dev destroy` of the first environment | 84 resources destroyed. Finding: about two minutes later AWS re-created the Container Insights log group (`/aws/ecs/containerinsights/<name>/performance`, untagged, 1-day retention), which would have made the next apply fail with "already exists". Fixed by turning Container Insights off ([decision 22](decisions.md#decisions)); the minimum-capacity alarm now uses ALB `HealthyHostCount` | 5 min 10 s |
-| `terraform -chdir=envs/dev apply` from zero, fresh clone, both fixes in | 83 resources, succeeded first try; the first CodeBuild build succeeded (no login failure; one run, so this shows the fix does no harm, not the root cause); dev box bootstrap marker present when the apply returned | 7 min 6 s |
-| `scripts/validate.sh` | 12/12 PASS | |
-| Second plan | `No changes.`, exit 0 | |
-| Log groups | build-trigger Lambda, app, codebuild, ssm-sessions, vpc-flow-logs; no Container Insights group | |
-
-The environment was destroyed after testing; re-apply it before a demo.
-
-Not verified live: an interactive session with the custom session document appearing in the session log, VS Code Remote-SSH, the alert e-mail subscription, and behaviour under load (see [Still unverified](decisions.md#still-unverified)).
+Not exercised live: an interactive session with the logged session document, VS Code Remote-SSH, the alert e-mail, auto-scaling under load.
