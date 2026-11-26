@@ -68,7 +68,14 @@ The bootstrap stack keeps local state because it creates the bucket remote state
 ## 5. Connect to the dev box
 
 ```bash
+terraform -chdir=envs/dev output -raw app_url           # copy the URL for the curl below
 $(terraform -chdir=envs/dev output -raw ssm_command)    # logged shell as ec2-user
+```
+
+Both commands need the same credentials and region as `apply`. Inside the session, the app answers privately from the isolated tier:
+
+```bash
+curl -s <app_url>
 ```
 
 ## 6. Validate each requirement
