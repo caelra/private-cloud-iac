@@ -78,12 +78,13 @@ Test runs: 3 (network), 3 (dev_env), 4 (app_service), 1 (stack).
 
 ## Live results
 
-2026-11-23, us-east-1, Terraform 1.17.2, AWS provider 6.73.0.
+2026-11-23 and 2026-11-25, us-east-1, Terraform 1.17.2, AWS provider 6.73.0.
 
 | Item | Result |
 |---|---|
-| Apply from zero | 83 resources in 7 min 30 s; from a fresh clone, 7 min 6 s |
-| `scripts/validate.sh` | 12/12 PASS on both |
+| Apply from zero | 83 resources in 7 min 30 s; from a fresh clone, 7 min 6 s; on 2026-11-25, 7 min 39 s |
+| `scripts/validate.sh` | 12/12 PASS on all three |
+| Interactive session | Opened with the session document as `ec2-user`; logged to CloudWatch |
 | Second plan | `No changes.` |
 | `/home` after stop/start | Files and `pip --user` package kept |
 | `/home` after instance replacement | Kept; replacement took 95 s |
@@ -97,4 +98,4 @@ Two defects the live run found, both fixed:
 - The first build's ECR login timed out in the minutes-old VPC; the build now waits for the endpoints and retries the login ([decision 21](decisions.md#decisions)).
 - AWS re-created the Container Insights log group after destroy, which would break the next apply; Container Insights is off ([decision 22](decisions.md#decisions)).
 
-Not exercised live: an interactive session with the logged session document, VS Code Remote-SSH, the alert e-mail, auto-scaling under load.
+Not exercised live: VS Code Remote-SSH, the alert e-mail, auto-scaling under load.

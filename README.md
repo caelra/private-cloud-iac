@@ -1,6 +1,8 @@
 # Private platform on AWS (Terraform)
 
-Terraform that builds a private AWS network, a persistent cloud dev environment reached without any public IP, and a container app built from source and served only inside the VPC. One `terraform apply` creates everything, including the image build. Details: [architecture diagram](docs/architecture.md) · [design decisions](docs/decisions.md) · [validation](docs/validation.md)
+[![ci](https://github.com/caelra/private-cloud-iac/actions/workflows/ci.yml/badge.svg)](https://github.com/caelra/private-cloud-iac/actions/workflows/ci.yml)
+
+Terraform that builds a private AWS network, a persistent cloud dev environment reached without any public IP, and a container app built from source and served only inside the VPC. One `terraform apply` creates everything, including the image build. Details: [architecture](docs/architecture.md) · [design decisions](docs/decisions.md) · [validation](docs/validation.md)
 
 ## 1. Provider and design
 
@@ -8,6 +10,69 @@ Terraform that builds a private AWS network, a persistent cloud dev environment 
 - **Egress** tier (dev box, CodeBuild): `0.0.0.0/0` routes to a regional NAT gateway, outbound only.
 - **Isolated** tier (internal ALB, ECS Fargate tasks, VPC endpoints): local route only, no internet route. The stateless app scales 2–4 tasks on CPU.
 - The tiers reach each other privately over the VPC local route (dev box → internal ALB); security groups allow only needed flows.
+
+```mermaid
+flowchart TB
+  dev["Developer laptop<br/>terraform apply · aws ssm start-session"]
+  inet(("Internet<br/>packages · base image registry"))
+  ssm["AWS Systems Manager<br/>Session Manager"]
+  lambda["Build trigger Lambda<br/>outside the VPC, AWS APIs only"]
+  ecr[("Private ECR")]
+  s3[("S3<br/>build-source bucket · ECR layers")]
+  logs["CloudWatch<br/>logs · metrics · dashboard"]
+  alarms["CloudWatch alarms"]
+  sns["SNS alerts topic"]
+
+  subgraph vpc["VPC 10.20.0.0/16 — no inbound from the internet — no resource has a public IP"]
+    igw["Internet gateway<br/>used only by the NAT"]
+    nat["Regional NAT gateway<br/>only public address"]
+    s3gw["S3 gateway endpoint<br/>on both route tables"]
+
+    subgraph egress["Egress tier — 10.20.0.0/24, 10.20.1.0/24 — 2 AZs — 0.0.0.0/0 → NAT"]
+      ec2["Dev EC2<br/>EBS volume at /home"]
+      cb["CodeBuild<br/>docker build + push"]
+    end
+
+    subgraph isolated["Isolated tier — 10.20.10.0/24, 10.20.11.0/24 — 2 AZs — local route only"]
+      alb["Internal ALB :80"]
+      ecs["ECS Fargate tasks :8080<br/>hello-app"]
+      vpce["Interface endpoints<br/>ecr.api · ecr.dkr · logs"]
+    end
+  end
+
+  %% Human access: no inbound path, the agent dials out through the NAT
+  dev -- "IAM-authenticated session, HTTPS" --> ssm
+  ec2 -- "SSM agent, packages: outbound only" --> nat
+  nat --> igw
+  igw -- "SSM agent channel" --> ssm
+  igw -- "outbound only" --> inet
+
+  %% App traffic: egress tier to isolated tier over the VPC local route
+  ec2 -- "curl, HTTP :80" --> alb
+  alb -- ":8080, ALB security group only" --> ecs
+
+  %% Build: Terraform uploads the source and invokes the trigger
+  dev -- "zip of app/" --> s3
+  dev -- "aws_lambda_invocation" --> lambda
+  lambda -- "StartBuild, wait" --> cb
+  cb -- "base image pull" --> nat
+  cb -- "source zip" --> s3gw
+  cb -- "image push" --> vpce
+
+  %% Runtime pull and logs stay private
+  ecs -- "image pull, logs" --> vpce
+  ecs -- "image layers" --> s3gw
+  s3gw --> s3
+  vpce --> ecr
+  vpce -- "task logs" --> logs
+
+  %% Monitoring: data path, then alarm path
+  vpc -. "metrics, flow logs, build and session logs" .-> logs
+  logs -. "metrics evaluated by" .-> alarms
+  alarms -- "notify" --> sns
+```
+
+How each resource is reached, monitoring and scaling: [docs/architecture.md](docs/architecture.md).
 
 ### Private access (Requirement 2): SSM Session Manager
 
@@ -63,7 +128,7 @@ terraform -chdir=envs/dev apply
 
 The bootstrap stack keeps local state because it creates the bucket remote state needs. Apply takes 7–8 minutes from zero.
 
-**Verified:** applied from zero twice in us-east-1, the second time from a fresh clone: 83 resources, `scripts/validate.sh` 12/12, second plan clean ([live results](docs/validation.md#live-results)).
+**Verified:** applied from zero three times in us-east-1, once from a fresh clone: 83 resources, `scripts/validate.sh` 12/12, second plan clean ([live results](docs/validation.md#live-results)).
 
 ## 5. Connect to the dev box
 
