@@ -17,12 +17,12 @@ flowchart TB
     nat["Regional NAT gateway<br/>only public address"]
     s3gw["S3 gateway endpoint<br/>on both route tables"]
 
-    subgraph egress["Egress tier — 10.20.0.0/24, 10.20.1.0/24 — 2 AZs — 0.0.0.0/0 → NAT"]
+    subgraph egress["Egress tier · 0.0.0.0/0 → NAT<br/>10.20.0.0/24, 10.20.1.0/24 · 2 AZs"]
       ec2["Dev EC2<br/>EBS volume at /home"]
       cb["CodeBuild<br/>docker build + push"]
     end
 
-    subgraph isolated["Isolated tier — 10.20.10.0/24, 10.20.11.0/24 — 2 AZs — local route only"]
+    subgraph isolated["Isolated tier · local route only<br/>10.20.10.0/24, 10.20.11.0/24 · 2 AZs"]
       alb["Internal ALB :80"]
       ecs["ECS Fargate tasks :8080<br/>hello-app"]
       vpce["Interface endpoints<br/>ecr.api · ecr.dkr · logs"]
